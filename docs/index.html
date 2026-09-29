@@ -10,21 +10,16 @@
 <link href="https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
   :root {
-    --paper: #F6F7F5;
-    --surface: #FFFFFF;
-    --ink: #17212B;
-    --muted: #5B6773;
-    --rule: #DCE0E3;
-    --gain: #1D7A55;
-    --loss: #B23A3A;
-    --focus: #2F4B9A;
-    --sticky: #FFFFFF;
+    --paper: #F6F7F5; --surface: #FFFFFF; --ink: #17212B; --muted: #66727D;
+    --faint: #9AA4AD; --rule: #E3E6E8; --band: #F1F3F2;
+    --gain: #1D7A55; --loss: #B23A3A; --focus: #2F4B9A;
     color-scheme: light dark;
   }
   @media (prefers-color-scheme: dark) {
     :root {
       --paper: #12181E; --surface: #182029; --ink: #E7ECEF; --muted: #97A3AE;
-      --rule: #2A3540; --gain: #4CC38A; --loss: #F07A72; --focus: #8FA8F0; --sticky: #182029;
+      --faint: #66727D; --rule: #26303A; --band: #1E2731;
+      --gain: #4CC38A; --loss: #F07A72; --focus: #8FA8F0;
     }
   }
   * { box-sizing: border-box; }
@@ -32,200 +27,397 @@
   body {
     background: var(--paper); color: var(--ink);
     font: 15px/1.5 "Schibsted Grotesk", system-ui, -apple-system, "Segoe UI", sans-serif;
-    font-variant-numeric: tabular-nums;
     padding: env(safe-area-inset-top, 0) 0 env(safe-area-inset-bottom, 0);
   }
-  .wrap { max-width: 1320px; margin: 0 auto; padding: 32px 20px 48px; }
+  .wrap { max-width: 1200px; margin: 0 auto; padding: 40px 20px 56px; }
 
-  header h1 { font-size: clamp(28px, 4vw, 44px); line-height: 1.05; letter-spacing: -0.02em; margin: 0 0 10px; font-weight: 700; max-width: 18ch; }
-  header p { margin: 0; color: var(--muted); max-width: 70ch; }
-  .stamp { margin-top: 14px; font-size: 13px; color: var(--muted); }
+  header { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: end; gap: 12px 32px; }
+  h1 { font-size: clamp(26px, 3.4vw, 38px); line-height: 1.1; letter-spacing: -0.02em; margin: 0; font-weight: 700; }
+  .stamp { font-size: 13px; color: var(--muted); margin: 0; }
   .stamp strong { color: var(--ink); font-weight: 600; }
 
-  .controls { display: flex; flex-wrap: wrap; gap: 12px 20px; align-items: end; margin: 28px 0 16px; }
-  .field { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); }
-  input[type=search], select {
-    font: inherit; color: var(--ink); background: var(--surface);
-    border: 1px solid var(--rule); border-radius: 6px; padding: 8px 10px; min-width: 0;
+  .controls {
+    display: flex; flex-wrap: wrap; gap: 12px; align-items: center;
+    margin: 28px 0 0; padding: 14px; background: var(--surface);
+    border: 1px solid var(--rule); border-radius: 10px 10px 0 0; border-bottom: 0;
   }
-  input[type=search] { width: min(340px, 80vw); }
-  .periods { display: inline-flex; border: 1px solid var(--rule); border-radius: 6px; overflow: hidden; background: var(--surface); }
-  .periods button { font: inherit; font-size: 14px; border: 0; background: none; color: var(--ink); padding: 8px 12px; cursor: pointer; }
+  input[type=search], select {
+    font: inherit; font-size: 14px; color: var(--ink); background: var(--paper);
+    border: 1px solid var(--rule); border-radius: 6px; padding: 8px 10px;
+  }
+  input[type=search] { flex: 1 1 240px; min-width: 0; }
+  .periods { display: inline-flex; border: 1px solid var(--rule); border-radius: 6px; overflow: hidden; }
+  .periods button { font: inherit; font-size: 14px; border: 0; background: var(--paper); color: var(--muted); padding: 8px 12px; cursor: pointer; }
   .periods button + button { border-left: 1px solid var(--rule); }
   .periods button[aria-pressed=true] { background: var(--ink); color: var(--paper); }
-  .download { font: inherit; font-size: 14px; padding: 8px 14px; border-radius: 6px; border: 1px solid var(--ink); background: none; color: var(--ink); cursor: pointer; margin-left: auto; }
+  .toggle { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; color: var(--muted); cursor: pointer; }
+  .link-btn { font: inherit; font-size: 14px; background: none; border: 0; color: var(--ink); text-decoration: underline; text-underline-offset: 3px; cursor: pointer; padding: 8px 4px; margin-left: auto; }
   :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 
-  .count { font-size: 13px; color: var(--muted); margin-bottom: 8px; }
-  .table-scroll { overflow-x: auto; background: var(--surface); border: 1px solid var(--rule); border-radius: 8px; max-height: 75vh; }
-  table { border-collapse: separate; border-spacing: 0; width: 100%; min-width: 1100px; }
-  th, td { padding: 9px 12px; text-align: right; border-bottom: 1px solid var(--rule); white-space: nowrap; }
-  thead th {
-    position: sticky; top: 0; z-index: 2; background: var(--sticky);
-    font-size: 12.5px; font-weight: 600; color: var(--muted); cursor: pointer; user-select: none; vertical-align: bottom;
+  .summary {
+    font-size: 13.5px; color: var(--muted); padding: 10px 14px; margin: 0;
+    background: var(--surface); border: 1px solid var(--rule); border-top: 1px solid var(--rule); border-bottom: 0;
   }
-  thead th[aria-sort] { color: var(--ink); }
+  .summary strong { color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; }
+
+  .table-scroll { overflow-x: auto; background: var(--surface); border: 1px solid var(--rule); border-radius: 0 0 10px 10px; }
+  table { border-collapse: separate; border-spacing: 0; width: 100%; }
+  th, td { padding: 11px 12px; text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  tbody td { border-top: 1px solid var(--rule); }
+  thead th { font-size: 12.5px; font-weight: 500; color: var(--muted); cursor: pointer; user-select: none; background: var(--surface); position: sticky; top: 0; z-index: 2; border-bottom: 1px solid var(--rule); }
+  thead th:hover { color: var(--ink); }
+  thead th[aria-sort] { color: var(--ink); font-weight: 600; }
   thead th[aria-sort=descending]::after { content: " ↓"; }
   thead th[aria-sort=ascending]::after { content: " ↑"; }
-  th.name, td.name { text-align: left; position: sticky; left: 0; background: var(--sticky); z-index: 1; white-space: normal; min-width: 260px; max-width: 320px; }
+  th.rank, td.rank { width: 44px; text-align: right; color: var(--faint); padding-right: 4px; font-size: 13px; }
+  th.name, td.name { text-align: left; white-space: normal; min-width: 300px; position: sticky; left: 0; background: var(--surface); z-index: 1; }
   thead th.name { z-index: 3; }
-  td.name b { display: block; font-weight: 600; line-height: 1.3; }
-  td.name span { display: block; font-size: 12.5px; color: var(--muted); line-height: 1.3; margin-top: 2px; }
-  th.group-start, td.group-start { border-left: 1px solid var(--rule); }
+  td.name .n { display: block; font-weight: 600; line-height: 1.3; }
+  td.name .p { display: block; font-size: 12.5px; color: var(--muted); line-height: 1.3; margin-top: 2px; }
+  td.pos { color: var(--gain); }
+  td.neg { color: var(--loss); }
+  td.na { color: var(--faint); }
+  th.active, td.active { background: var(--band); }
   td.active { font-weight: 700; }
-  td.na { color: var(--muted); }
-  tbody tr:hover td { filter: brightness(0.97); }
-  .empty { padding: 40px; text-align: center; color: var(--muted); }
+  th.sep, td.sep { border-left: 1px solid var(--rule); }
+  tbody tr:hover td { background: var(--band); }
+  .empty { padding: 48px 20px; text-align: center; color: var(--muted); white-space: normal; }
 
-  footer { margin-top: 28px; font-size: 13px; color: var(--muted); max-width: 80ch; }
+  .more { display: block; margin: 16px auto 0; font: inherit; font-size: 14px; padding: 9px 18px; border-radius: 6px; border: 1px solid var(--rule); background: var(--surface); color: var(--ink); cursor: pointer; }
+  .more[hidden] { display: none; }
+
+  footer { margin-top: 36px; font-size: 13px; color: var(--muted); max-width: 75ch; }
+  footer p { margin: 0 0 8px; }
   footer a { color: inherit; }
+
+  .tabs { display: flex; gap: 4px; margin-top: 28px; flex-wrap: wrap; }
+  .tabs button { font: inherit; font-size: 14.5px; font-weight: 500; border: 1px solid transparent; border-bottom: 0; background: none; color: var(--muted); padding: 9px 14px; border-radius: 8px 8px 0 0; cursor: pointer; }
+  .tabs button .c { font-size: 12px; color: var(--faint); margin-left: 4px; font-variant-numeric: tabular-nums; }
+  .tabs button[aria-selected=true] { background: var(--surface); color: var(--ink); border-color: var(--rule); font-weight: 600; }
+  .tabs .mine { margin-left: auto; }
+  .tabs + .controls { margin-top: 0; border-radius: 0 10px 0 0; }
+  .col-picker { position: relative; }
+  .col-picker > button { font: inherit; font-size: 14px; background: var(--paper); color: var(--ink); border: 1px solid var(--rule); border-radius: 6px; padding: 8px 12px; cursor: pointer; }
+  .col-panel { position: absolute; right: 0; top: calc(100% + 6px); z-index: 10; background: var(--surface); border: 1px solid var(--rule); border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,.12); padding: 12px 14px; width: 260px; }
+  .col-panel[hidden] { display: none; }
+  .col-panel fieldset { border: 0; margin: 0 0 10px; padding: 0; }
+  .col-panel legend { font-size: 12.5px; color: var(--muted); margin-bottom: 4px; padding: 0; }
+  .col-panel label { display: flex; gap: 8px; align-items: center; font-size: 14px; padding: 3px 0; cursor: pointer; }
+  .col-panel .row { display: flex; justify-content: space-between; border-top: 1px solid var(--rule); padding-top: 10px; }
+  .col-panel .row button { font: inherit; font-size: 13px; background: none; border: 0; color: var(--ink); text-decoration: underline; cursor: pointer; padding: 0; }
+  td.tag { text-align: left; color: var(--muted); font-size: 13px; }
+  .missing { margin-top: 14px; font-size: 13.5px; color: var(--muted); background: var(--surface); border: 1px solid var(--rule); border-radius: 8px; padding: 12px 14px; }
+  .missing[hidden] { display: none; }
+  .missing ul { margin: 6px 0 0; padding-left: 18px; }
+
+  @media (max-width: 640px) {
+    .wrap { padding-top: 24px; }
+    th.name, td.name { min-width: 180px; }
+    .link-btn { margin-left: 0; }
+    .tabs .mine { margin-left: 0; }
+    .col-panel { right: auto; left: 0; }
+  }
 </style>
 </head>
 <body>
 <div class="wrap">
   <header>
-    <h1>Every PMS strategy, compared</h1>
-    <p>Returns, assets under management and portfolio turnover for each investment approach reported to the Association of Portfolio Managers in India. Updates automatically each month.</p>
-    <div class="stamp" id="stamp">Loading data…</div>
+    <h1>PMS Tracker</h1>
+    <p class="stamp" id="stamp">Loading data…</p>
   </header>
 
+  <div class="tabs" id="tabs" role="tablist" aria-label="Category"></div>
   <div class="controls">
-    <label class="field">Search provider or strategy
-      <input type="search" id="q" placeholder="e.g. Carnelian, small cap, momentum">
-    </label>
-    <label class="field">Minimum AUM
-      <select id="aum">
-        <option value="0">Any size</option>
-        <option value="50">₹50 Cr and above</option>
-        <option value="250">₹250 Cr and above</option>
-        <option value="1000">₹1,000 Cr and above</option>
-        <option value="5000">₹5,000 Cr and above</option>
-      </select>
-    </label>
-    <div class="field">Rank by return over
-      <div class="periods" id="periods" role="group" aria-label="Return period"></div>
+    <input type="search" id="q" placeholder="Search a fund manager or strategy" aria-label="Search">
+    <select id="aum" aria-label="Minimum AUM">
+      <option value="0">Any AUM</option>
+      <option value="100">₹100 Cr+</option>
+      <option value="500">₹500 Cr+</option>
+      <option value="1000">₹1,000 Cr+</option>
+      <option value="5000">₹5,000 Cr+</option>
+    </select>
+    <div class="periods" id="periods" role="group" aria-label="Rank by return period"></div>
+    <select id="svc" aria-label="Service type">
+      <option value="">All service types</option>
+      <option value="Discretionary">Discretionary</option>
+      <option value="Non Discretionary">Non-discretionary</option>
+    </select>
+    <div class="col-picker">
+      <button type="button" id="colBtn" aria-expanded="false" aria-controls="colPanel">Columns</button>
+      <div class="col-panel" id="colPanel" hidden></div>
     </div>
-    <button class="download" id="dl">Download CSV</button>
+    <button class="link-btn" id="dl">Download CSV</button>
   </div>
+  <p class="summary" id="summary"></p>
 
-  <div class="count" id="count"></div>
-  <div class="table-scroll">
+  <div class="table-scroll" id="scroll">
     <table>
       <thead><tr id="head"></tr></thead>
       <tbody id="body"></tbody>
     </table>
   </div>
+  <button class="more" id="more" hidden>Show 50 more</button>
+  <div class="missing" id="missing" hidden></div>
 
   <footer>
-    <p>Source: <a href="https://www.apmiindia.org/apmi/welcomeiaperformance.htm?action=PMSmenu" rel="noopener">APMI IA Performance</a> and <a href="https://www.apmiindia.org/apmi/IATurnoverReportUtility.htm?action=loadIATurnoverPage" rel="noopener">IA Turnover</a> reports. Returns over one year are annualised as reported by APMI. Turnover is shown exactly as reported. Blank cells mean the figure wasn't reported for that period.</p>
-    <p>This site is for information only and isn't investment advice. Past performance doesn't indicate future returns.</p>
+    <p>Data from the <a href="https://www.apmiindia.org/apmi/welcomeiaperformance.htm?action=PMSmenu" rel="noopener">APMI IA Performance</a> and <a href="https://www.apmiindia.org/apmi/IATurnoverReportUtility.htm?action=loadIATurnoverPage" rel="noopener">IA Turnover</a> reports. Returns over one year are annualised. Figures are shown as reported; a dash means no figure was reported.</p>
+    <p>For information only. Not investment advice. Past performance doesn't indicate future returns.</p>
   </footer>
 </div>
 
 <script>
 const COLS = [
-  { key: "AUM (INR Cr)", label: "AUM (₹ Cr)", fmt: "aum", group: true },
-  { key: "Return 1M (%)", label: "1M", period: "1M", fmt: "pct", group: true },
-  { key: "Return 3M (%)", label: "3M", period: "3M", fmt: "pct" },
-  { key: "Return 6M (%)", label: "6M", period: "6M", fmt: "pct" },
-  { key: "Return 1Y (%)", label: "1Y", period: "1Y", fmt: "pct" },
-  { key: "Return 2Y (%)", label: "2Y", fmt: "pct" },
-  { key: "Return 3Y (%)", label: "3Y", period: "3Y", fmt: "pct" },
-  { key: "Return 5Y (%)", label: "5Y", period: "5Y", fmt: "pct" },
-  { key: "Return Since Inception (%)", label: "Since inception", fmt: "pct" },
-  { key: "Turnover 1M", label: "Turnover 1M", fmt: "num", group: true },
-  { key: "Turnover 1Y", label: "Turnover 1Y", fmt: "num" },
+  { key: "Category", label: "Category", fmt: "text", group: "Details" },
+  { key: "Service Type", label: "Service", fmt: "text", group: "Details" },
+  { key: "AUM (INR Cr)", label: "AUM (₹ Cr)", fmt: "aum", group: "Details", on: true, sep: true },
+  { key: "Return 1M (%)", label: "1M", period: "1M", fmt: "pct", group: "Returns", on: true, sep: true },
+  { key: "Return 3M (%)", label: "3M", period: "3M", fmt: "pct", group: "Returns", on: true },
+  { key: "Return 6M (%)", label: "6M", period: "6M", fmt: "pct", group: "Returns", on: true },
+  { key: "Return 1Y (%)", label: "1Y", period: "1Y", fmt: "pct", group: "Returns", on: true },
+  { key: "Return 2Y (%)", label: "2Y", period: "2Y", fmt: "pct", group: "Returns" },
+  { key: "Return 3Y (%)", label: "3Y", period: "3Y", fmt: "pct", group: "Returns", on: true },
+  { key: "Return 4Y (%)", label: "4Y", period: "4Y", fmt: "pct", group: "Returns" },
+  { key: "Return 5Y (%)", label: "5Y", period: "5Y", fmt: "pct", group: "Returns", on: true },
+  { key: "Return Since Inception (%)", label: "Since start", fmt: "pct", group: "Returns" },
+  { key: "Turnover 1M", label: "Turnover 1M", fmt: "num", group: "Turnover", on: true, sep: true },
+  { key: "Turnover 1Y", label: "Turnover 1Y", fmt: "num", group: "Turnover", on: true },
 ];
-const state = { rows: [], q: "", minAum: 0, sortKey: "Return 1Y (%)", dir: -1 };
+const CATEGORIES = ["Equity", "Debt", "Hybrid", "Multi Asset"];
+const PAGE = 50;
+const STORE_KEY = "pms-tracker-columns";
+const state = { rows: [], tab: "Equity", q: "", minAum: 0, svc: "", sortKey: "Return 1Y (%)", dir: -1, shown: PAGE, visible: loadColumns(), watch: [], watchMissing: [] };
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const inr = new Intl.NumberFormat("en-IN", { maximumFractionDigits: 0 });
+const key = s => String(s ?? "").toLowerCase().replace(/&/g, "and").replace(/[^a-z0-9]+/g, "");
 
+function loadColumns() {
+  try { const v = JSON.parse(localStorage.getItem(STORE_KEY)); if (Array.isArray(v) && v.length) return new Set(v); } catch (e) {}
+  return new Set(COLS.filter(c => c.on).map(c => c.key));
+}
+function saveColumns() { try { localStorage.setItem(STORE_KEY, JSON.stringify([...state.visible])); } catch (e) {} }
+const shownCols = () => COLS.filter(c => state.visible.has(c.key));
+
+function tidyName(s) {
+  s = String(s ?? "").trim();
+  const letters = s.replace(/[^A-Za-z]/g, "");
+  const upper = letters ? letters.replace(/[^A-Z]/g, "").length / letters.length : 0;
+  if (upper < 0.8) return s;
+  const common = new Set(["THE", "AND", "FOR", "NEW", "TOP", "ALL", "CAP", "MID", "ONE", "TWO", "TEN", "SME"]);
+  return s.split(/(\s+|-|\/|\()/).map(w =>
+    (/^[A-Z0-9&.]{1,3}$/.test(w) && !common.has(w)) || /^\d/.test(w) ? w : w.charAt(0) + w.slice(1).toLowerCase()).join("");
+}
+function tidyProvider(s) {
+  return tidyName(s)
+    .replace(/\s*\((formerly|formely)[^)]*\)/i, "")
+    .replace(/[\s,]*(private|pvt\.?)\s*(limited|ltd\.?|lmited|limites|limiited|lted|ld)\.?$/i, "")
+    .replace(/[\s,]*(limited|ltd\.?|llp)\.?$/i, "").trim();
+}
 function fmt(v, kind) {
-  if (v === null || v === undefined || v === "") return "";
+  if (v === null || v === undefined || v === "") return null;
+  if (kind === "text") return esc(v === "Non Discretionary" ? "Non-discretionary" : v);
   if (kind === "aum") return inr.format(v);
-  if (kind === "pct") return (v > 0 ? "+" : "") + v.toFixed(1);
+  if (kind === "pct") return (v > 0 ? "+" : v < 0 ? "−" : "") + Math.abs(v).toFixed(1) + "%";
   return Number(v).toFixed(2);
 }
-function heat(v) {
-  if (typeof v !== "number") return "";
-  const pct = Math.min(Math.abs(v) / 40, 1) * 32;
-  return `background: color-mix(in srgb, var(${v >= 0 ? "--gain" : "--loss"}) ${pct.toFixed(0)}%, transparent)`;
+function median(nums) {
+  if (!nums.length) return null;
+  const a = [...nums].sort((x, y) => x - y), m = Math.floor(a.length / 2);
+  return a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2;
+}
+
+// ---------- watchlist (docs/watchlist.csv: Provider,Strategy)
+function parseCsv(text) {
+  const rows = []; let row = [], cell = "", q = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (q) { if (ch === '"' && text[i + 1] === '"') { cell += '"'; i++; } else if (ch === '"') q = false; else cell += ch; }
+    else if (ch === '"') q = true;
+    else if (ch === ",") { row.push(cell); cell = ""; }
+    else if (ch === "\n" || ch === "\r") { if (ch === "\r" && text[i + 1] === "\n") i++; row.push(cell); rows.push(row); row = []; cell = ""; }
+    else cell += ch;
+  }
+  if (cell || row.length) { row.push(cell); rows.push(row); }
+  return rows.filter(r => r.some(c => c.trim()));
+}
+function loadWatchlist(text) {
+  const rows = parseCsv(text);
+  if (!rows.length) return [];
+  const head = rows[0].map(h => h.trim().toLowerCase());
+  const si = head.findIndex(h => /strategy|approach|fund|scheme/.test(h));
+  const pi = head.findIndex(h => /provider|manager|amc|house/.test(h));
+  const body = si >= 0 ? rows.slice(1) : rows;
+  return body.map(r => ({
+    strategy: (r[si >= 0 ? si : 0] || "").trim(),
+    provider: pi >= 0 ? (r[pi] || "").trim() : "",
+  })).filter(w => w.strategy);
+}
+function applyWatchlist() {
+  const missing = [];
+  state.rows.forEach(r => r._mine = false);
+  for (const w of state.watch) {
+    const sk = key(w.strategy), pk = key(tidyProvider(w.provider));
+    const hits = state.rows.filter(r => key(r["Investment Approach"]) === sk && (!pk || key(r._provider).includes(pk) || pk.includes(key(r._provider))));
+    hits.forEach(r => r._mine = true);
+    if (!hits.length) missing.push(w);
+  }
+  state.watchMissing = missing;
+}
+
+// ---------- rendering
+function renderTabs() {
+  const counts = {}; state.rows.forEach(r => counts[r._cat] = (counts[r._cat] || 0) + 1);
+  const mine = state.rows.filter(r => r._mine).length;
+  const tabs = CATEGORIES.map(c => [c, c, counts[c] || 0]);
+  if (state.watch.length) tabs.push(["mine", "My funds", mine]);
+  $("tabs").innerHTML = tabs.map(([id, label, n]) =>
+    `<button role="tab" data-tab="${esc(id)}" class="${id === "mine" ? "mine" : ""}" aria-selected="${state.tab === id}">${esc(label)}<span class="c">${n}</span></button>`).join("");
+  $("tabs").querySelectorAll("button").forEach(b => b.addEventListener("click", () => { state.tab = b.dataset.tab; state.shown = PAGE; renderTabs(); render(); }));
+}
+
+function renderColumnPanel() {
+  const groups = [...new Set(COLS.map(c => c.group))];
+  $("colPanel").innerHTML = groups.map(g => `<fieldset><legend>${esc(g)}</legend>` +
+    COLS.filter(c => c.group === g).map(c =>
+      `<label><input type="checkbox" data-key="${esc(c.key)}" ${state.visible.has(c.key) ? "checked" : ""}> ${esc(c.label)}</label>`).join("") +
+    `</fieldset>`).join("") +
+    `<div class="row"><button type="button" id="colAll">Show all</button><button type="button" id="colReset">Reset to default</button></div>`;
+  $("colPanel").querySelectorAll("input").forEach(i => i.addEventListener("change", () => {
+    i.checked ? state.visible.add(i.dataset.key) : state.visible.delete(i.dataset.key);
+    saveColumns(); renderAll();
+  }));
+  $("colAll").addEventListener("click", () => { state.visible = new Set(COLS.map(c => c.key)); saveColumns(); renderColumnPanel(); renderAll(); });
+  $("colReset").addEventListener("click", () => { state.visible = new Set(COLS.filter(c => c.on).map(c => c.key)); saveColumns(); renderColumnPanel(); renderAll(); });
 }
 
 function renderHead() {
-  $("head").innerHTML = `<th class="name" data-key="Investment Approach">Strategy and provider</th>` +
-    COLS.map(c => `<th data-key="${esc(c.key)}" class="${c.group ? "group-start" : ""}">${esc(c.label)}</th>`).join("");
-  $("head").querySelectorAll("th").forEach(th => {
+  const cols = shownCols();
+  $("head").innerHTML = `<th class="rank" aria-label="Rank">#</th><th class="name" data-key="name">Strategy</th>` +
+    cols.map(c => `<th data-key="${esc(c.key)}" class="${c.sep ? "sep" : ""}">${esc(c.label)}</th>`).join("");
+  $("head").querySelectorAll("th[data-key]").forEach(th => {
     th.tabIndex = 0;
     const act = () => {
       const k = th.dataset.key;
-      state.dir = state.sortKey === k ? -state.dir : (k === "Investment Approach" ? 1 : -1);
-      state.sortKey = k; render();
+      state.dir = state.sortKey === k ? -state.dir : (k === "name" || k === "Category" || k === "Service Type" ? 1 : -1);
+      state.sortKey = k; state.shown = PAGE; render();
     };
     th.addEventListener("click", act);
     th.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); act(); } });
   });
-  $("periods").innerHTML = COLS.filter(c => c.period)
-    .map(c => `<button type="button" data-key="${esc(c.key)}">${c.period}</button>`).join("");
+  const periods = cols.filter(c => c.period);
+  $("periods").innerHTML = periods.map(c => `<button type="button" data-key="${esc(c.key)}">${c.period}</button>`).join("");
+  $("periods").hidden = !periods.length;
   $("periods").querySelectorAll("button").forEach(b =>
-    b.addEventListener("click", () => { state.sortKey = b.dataset.key; state.dir = -1; render(); }));
+    b.addEventListener("click", () => { state.sortKey = b.dataset.key; state.dir = -1; state.shown = PAGE; render(); }));
 }
 
 function filtered() {
   const q = state.q.trim().toLowerCase();
-  let rows = state.rows.filter(r =>
-    (!q || `${r["Provider"]} ${r["Investment Approach"]}`.toLowerCase().includes(q)) &&
+  const rows = state.rows.filter(r =>
+    (state.tab === "mine" ? r._mine : r._cat === state.tab) &&
+    (!state.svc || r["Service Type"] === state.svc) &&
+    (!q || r._search.includes(q)) &&
     (state.minAum === 0 || (r["AUM (INR Cr)"] ?? 0) >= state.minAum));
   const k = state.sortKey, d = state.dir;
   return rows.sort((a, b) => {
-    const x = a[k], y = b[k];
+    const x = k === "name" ? a._name : a[k], y = k === "name" ? b._name : b[k];
     if (x == null && y == null) return 0;
-    if (x == null) return 1;           // blanks always last
+    if (x == null) return 1;
     if (y == null) return -1;
     return typeof x === "string" ? d * x.localeCompare(y) : d * (x - y);
   });
 }
 
 function render() {
+  const cols = shownCols();
+  if (state.sortKey !== "name" && !state.visible.has(state.sortKey)) {
+    state.sortKey = (cols.find(c => c.key === "Return 1Y (%)") || cols.find(c => c.fmt === "pct") || { key: "name" }).key;
+    state.dir = state.sortKey === "name" ? 1 : -1;
+  }
   const rows = filtered();
-  $("head").querySelectorAll("th").forEach(th =>
-    th.dataset.key === state.sortKey ? th.setAttribute("aria-sort", state.dir < 0 ? "descending" : "ascending") : th.removeAttribute("aria-sort"));
+  const activeCol = COLS.find(c => c.key === state.sortKey);
+
+  $("head").querySelectorAll("th[data-key]").forEach(th => {
+    const on = th.dataset.key === state.sortKey;
+    on ? th.setAttribute("aria-sort", state.dir < 0 ? "descending" : "ascending") : th.removeAttribute("aria-sort");
+    th.classList.toggle("active", on && th.dataset.key !== "name");
+  });
   $("periods").querySelectorAll("button").forEach(b => b.setAttribute("aria-pressed", b.dataset.key === state.sortKey));
-  $("count").textContent = `Showing ${rows.length.toLocaleString("en-IN")} of ${state.rows.length.toLocaleString("en-IN")} strategies`;
-  $("body").innerHTML = rows.length ? rows.map(r =>
-    `<tr><td class="name"><b>${esc(r["Investment Approach"])}</b><span>${esc(r["Provider"])}</span></td>` +
-    COLS.map(c => {
+
+  const totalAum = rows.reduce((s, r) => s + (r["AUM (INR Cr)"] || 0), 0);
+  let summary = `<strong>${rows.length.toLocaleString("en-IN")}</strong> strategies with <strong>₹${inr.format(totalAum)} Cr</strong> combined AUM`;
+  if (activeCol && activeCol.fmt === "pct") {
+    const med = median(rows.map(r => r[activeCol.key]).filter(v => typeof v === "number"));
+    if (med !== null) summary += `. Median ${esc(activeCol.label)} return <strong>${fmt(med, "pct")}</strong>`;
+  }
+  $("summary").innerHTML = summary + ".";
+
+  const page = rows.slice(0, state.shown);
+  const tabName = state.tab === "mine" ? "your list" : state.tab;
+  $("body").innerHTML = page.length ? page.map((r, i) =>
+    `<tr><td class="rank">${i + 1}</td><td class="name"><span class="n">${esc(r._name)}</span><span class="p">${esc(r._provider)}${!state.svc && r["Service Type"] === "Non Discretionary" && !state.visible.has("Service Type") ? ", non-discretionary" : ""}</span></td>` +
+    cols.map(c => {
       const v = r[c.key], txt = fmt(v, c.fmt);
-      const cls = [c.group ? "group-start" : "", c.key === state.sortKey ? "active" : "", txt === "" ? "na" : ""].join(" ");
-      return `<td class="${cls}" style="${c.fmt === "pct" ? heat(v) : ""}">${txt || "–"}</td>`;
+      const cls = [c.sep ? "sep" : "", c.fmt === "text" ? "tag" : "", c.key === state.sortKey ? "active" : "",
+        txt === null ? "na" : c.fmt === "pct" ? (v > 0 ? "pos" : v < 0 ? "neg" : "") : ""].join(" ");
+      return `<td class="${cls}">${txt ?? "–"}</td>`;
     }).join("") + `</tr>`).join("")
-    : `<tr><td class="empty" colspan="${COLS.length + 1}">No strategies match. Try a shorter search or a lower minimum AUM.</td></tr>`;
+    : `<tr><td class="empty" colspan="${cols.length + 2}">No strategies in ${esc(tabName)} match these filters. Try a shorter search, a lower minimum AUM or all service types.</td></tr>`;
+
+  const left = rows.length - page.length;
+  $("more").hidden = left <= 0;
+  $("more").textContent = `Show ${Math.min(PAGE, left)} more`;
+
+  const miss = state.tab === "mine" ? state.watchMissing : [];
+  $("missing").hidden = !miss.length;
+  $("missing").innerHTML = miss.length ? `${miss.length === 1 ? "This fund" : `These ${miss.length} funds`} from your list ${miss.length === 1 ? "wasn't" : "weren't"} found in this month's APMI data. Check the spelling in watchlist.csv matches APMI's strategy name exactly.<ul>` +
+    miss.map(w => `<li>${esc(w.strategy)}${w.provider ? ` (${esc(w.provider)})` : ""}</li>`).join("") + `</ul>` : "";
 }
+function renderAll() { renderHead(); render(); }
 
 function downloadCsv() {
-  const keys = ["Provider", "Investment Approach", ...COLS.map(c => c.key)];
+  const keys = ["Category", "Service Type", "Provider", "Investment Approach", ...COLS.map(c => c.key).filter(k => k !== "Category" && k !== "Service Type")];
   const lines = [keys.join(",")].concat(filtered().map(r =>
     keys.map(k => { const v = r[k] ?? ""; return /[",\n]/.test(v) ? `"${String(v).replace(/"/g, '""')}"` : v; }).join(",")));
   const a = document.createElement("a");
   a.href = URL.createObjectURL(new Blob([lines.join("\n")], { type: "text/csv" }));
-  a.download = `apmi_pms_${(state.asOn || "").replace(/\//g, "-")}.csv`;
+  a.download = `pms_tracker_${state.tab === "mine" ? "my_funds" : state.tab.toLowerCase().replace(/\s+/g, "_")}_${(state.asOn || "").replace(/\//g, "-")}.csv`;
   a.click();
 }
 
-renderHead();
-$("q").addEventListener("input", e => { state.q = e.target.value; render(); });
-$("aum").addEventListener("change", e => { state.minAum = Number(e.target.value); render(); });
+// ---------- wiring
+renderColumnPanel();
+$("colBtn").addEventListener("click", e => {
+  e.stopPropagation();
+  const open = $("colPanel").hidden;
+  $("colPanel").hidden = !open; $("colBtn").setAttribute("aria-expanded", open);
+});
+document.addEventListener("click", e => { if (!e.target.closest(".col-picker")) { $("colPanel").hidden = true; $("colBtn").setAttribute("aria-expanded", false); } });
+document.addEventListener("keydown", e => { if (e.key === "Escape") { $("colPanel").hidden = true; $("colBtn").setAttribute("aria-expanded", false); } });
+$("q").addEventListener("input", e => { state.q = e.target.value; state.shown = PAGE; render(); });
+$("aum").addEventListener("change", e => { state.minAum = Number(e.target.value); state.shown = PAGE; render(); });
+$("svc").addEventListener("change", e => { state.svc = e.target.value; state.shown = PAGE; render(); });
+$("more").addEventListener("click", () => { state.shown += PAGE; render(); });
 $("dl").addEventListener("click", downloadCsv);
 
-fetch("data.json", { cache: "no-cache" })
-  .then(r => { if (!r.ok) throw new Error(r.status); return r.json(); })
-  .then(d => {
-    state.rows = d.rows || []; state.asOn = d.as_on;
-    $("stamp").innerHTML = `Data as on <strong>${esc(d.as_on)}</strong>. Last checked ${esc(d.updated_at)}.`;
-    render();
-  })
-  .catch(() => { $("stamp").textContent = "The data file couldn't be loaded. Check that docs/data.json exists in the repository."; });
+Promise.all([
+  fetch("data.json", { cache: "no-cache" }).then(r => { if (!r.ok) throw new Error(r.status); return r.json(); }),
+  fetch("watchlist.csv", { cache: "no-cache" }).then(r => r.ok ? r.text() : "").catch(() => ""),
+]).then(([d, watchText]) => {
+  state.asOn = d.as_on;
+  state.rows = (d.rows || []).map(r => ({
+    ...r,
+    _cat: r["Category"] || "Equity",
+    _name: tidyName(r["Investment Approach"]),
+    _provider: tidyProvider(r["Provider"]),
+    _search: `${r["Provider"]} ${r["Investment Approach"]}`.toLowerCase(),
+  }));
+  state.watch = loadWatchlist(watchText);
+  applyWatchlist();
+  if (location.hash === "#my-funds" && state.watch.length) state.tab = "mine";
+  $("stamp").innerHTML = `Data as on <strong>${esc(d.as_on)}</strong>. Source: APMI.`;
+  renderTabs(); renderAll();
+}).catch(() => { $("stamp").textContent = "The data couldn't be loaded. Check that data.json is in the same folder as this page."; });
 </script>
 </body>
 </html>
