@@ -1,0 +1,231 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>PMS Tracker: returns, AUM and turnover</title>
+<meta name="description" content="Compare every Portfolio Management Service strategy reported to APMI by returns, AUM and portfolio turnover.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --paper: #F6F7F5;
+    --surface: #FFFFFF;
+    --ink: #17212B;
+    --muted: #5B6773;
+    --rule: #DCE0E3;
+    --gain: #1D7A55;
+    --loss: #B23A3A;
+    --focus: #2F4B9A;
+    --sticky: #FFFFFF;
+    color-scheme: light dark;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --paper: #12181E; --surface: #182029; --ink: #E7ECEF; --muted: #97A3AE;
+      --rule: #2A3540; --gain: #4CC38A; --loss: #F07A72; --focus: #8FA8F0; --sticky: #182029;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    background: var(--paper); color: var(--ink);
+    font: 15px/1.5 "Schibsted Grotesk", system-ui, -apple-system, "Segoe UI", sans-serif;
+    font-variant-numeric: tabular-nums;
+    padding: env(safe-area-inset-top, 0) 0 env(safe-area-inset-bottom, 0);
+  }
+  .wrap { max-width: 1320px; margin: 0 auto; padding: 32px 20px 48px; }
+
+  header h1 { font-size: clamp(28px, 4vw, 44px); line-height: 1.05; letter-spacing: -0.02em; margin: 0 0 10px; font-weight: 700; max-width: 18ch; }
+  header p { margin: 0; color: var(--muted); max-width: 70ch; }
+  .stamp { margin-top: 14px; font-size: 13px; color: var(--muted); }
+  .stamp strong { color: var(--ink); font-weight: 600; }
+
+  .controls { display: flex; flex-wrap: wrap; gap: 12px 20px; align-items: end; margin: 28px 0 16px; }
+  .field { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); }
+  input[type=search], select {
+    font: inherit; color: var(--ink); background: var(--surface);
+    border: 1px solid var(--rule); border-radius: 6px; padding: 8px 10px; min-width: 0;
+  }
+  input[type=search] { width: min(340px, 80vw); }
+  .periods { display: inline-flex; border: 1px solid var(--rule); border-radius: 6px; overflow: hidden; background: var(--surface); }
+  .periods button { font: inherit; font-size: 14px; border: 0; background: none; color: var(--ink); padding: 8px 12px; cursor: pointer; }
+  .periods button + button { border-left: 1px solid var(--rule); }
+  .periods button[aria-pressed=true] { background: var(--ink); color: var(--paper); }
+  .download { font: inherit; font-size: 14px; padding: 8px 14px; border-radius: 6px; border: 1px solid var(--ink); background: none; color: var(--ink); cursor: pointer; margin-left: auto; }
+  :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+
+  .count { font-size: 13px; color: var(--muted); margin-bottom: 8px; }
+  .table-scroll { overflow-x: auto; background: var(--surface); border: 1px solid var(--rule); border-radius: 8px; max-height: 75vh; }
+  table { border-collapse: separate; border-spacing: 0; width: 100%; min-width: 1100px; }
+  th, td { padding: 9px 12px; text-align: right; border-bottom: 1px solid var(--rule); white-space: nowrap; }
+  thead th {
+    position: sticky; top: 0; z-index: 2; background: var(--sticky);
+    font-size: 12.5px; font-weight: 600; color: var(--muted); cursor: pointer; user-select: none; vertical-align: bottom;
+  }
+  thead th[aria-sort] { color: var(--ink); }
+  thead th[aria-sort=descending]::after { content: " ↓"; }
+  thead th[aria-sort=ascending]::after { content: " ↑"; }
+  th.name, td.name { text-align: left; position: sticky; left: 0; background: var(--sticky); z-index: 1; white-space: normal; min-width: 260px; max-width: 320px; }
+  thead th.name { z-index: 3; }
+  td.name b { display: block; font-weight: 600; line-height: 1.3; }
+  td.name span { display: block; font-size: 12.5px; color: var(--muted); line-height: 1.3; margin-top: 2px; }
+  th.group-start, td.group-start { border-left: 1px solid var(--rule); }
+  td.active { font-weight: 700; }
+  td.na { color: var(--muted); }
+  tbody tr:hover td { filter: brightness(0.97); }
+  .empty { padding: 40px; text-align: center; color: var(--muted); }
+
+  footer { margin-top: 28px; font-size: 13px; color: var(--muted); max-width: 80ch; }
+  footer a { color: inherit; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Every PMS strategy, compared</h1>
+    <p>Returns, assets under management and portfolio turnover for each investment approach reported to the Association of Portfolio Managers in India. Updates automatically each month.</p>
+    <div class="stamp" id="stamp">Loading data…</div>
+  </header>
+
+  <div class="controls">
+    <label class="field">Search provider or strategy
+      <input type="search" id="q" placeholder="e.g. Carnelian, small cap, momentum">
+    </label>
+    <label class="field">Minimum AUM
+      <select id="aum">
+        <option value="0">Any size</option>
+        <option value="50">₹50 Cr and above</option>
+        <option value="250">₹250 Cr and above</option>
+        <option value="1000">₹1,000 Cr and above</option>
+        <option value="5000">₹5,000 Cr and above</option>
+      </select>
+    </label>
+    <div class="field">Rank by return over
+      <div class="periods" id="periods" role="group" aria-label="Return period"></div>
+    </div>
+    <button class="download" id="dl">Download CSV</button>
+  </div>
+
+  <div class="count" id="count"></div>
+  <div class="table-scroll">
+    <table>
+      <thead><tr id="head"></tr></thead>
+      <tbody id="body"></tbody>
+    </table>
+  </div>
+
+  <footer>
+    <p>Source: <a href="https://www.apmiindia.org/apmi/welcomeiaperformance.htm?action=PMSmenu" rel="noopener">APMI IA Performance</a> and <a href="https://www.apmiindia.org/apmi/IATurnoverReportUtility.htm?action=loadIATurnoverPage" rel="noopener">IA Turnover</a> reports. Returns over one year are annualised as reported by APMI. Turnover is shown exactly as reported. Blank cells mean the figure wasn't reported for that period.</p>
+    <p>This site is for information only and isn't investment advice. Past performance doesn't indicate future returns.</p>
+  </footer>
+</div>
+
+<script>
+const COLS = [
+  { key: "AUM (INR Cr)", label: "AUM (₹ Cr)", fmt: "aum", group: true },
+  { key: "Return 1M (%)", label: "1M", period: "1M", fmt: "pct", group: true },
+  { key: "Return 3M (%)", label: "3M", period: "3M", fmt: "pct" },
+  { key: "Return 6M (%)", label: "6M", period: "6M", fmt: "pct" },
+  { key: "Return 1Y (%)", label: "1Y", period: "1Y", fmt: "pct" },
+  { key: "Return 2Y (%)", label: "2Y", fmt: "pct" },
+  { key: "Return 3Y (%)", label: "3Y", period: "3Y", fmt: "pct" },
+  { key: "Return 5Y (%)", label: "5Y", period: "5Y", fmt: "pct" },
+  { key: "Return Since Inception (%)", label: "Since inception", fmt: "pct" },
+  { key: "Turnover 1M", label: "Turnover 1M", fmt: "num", group: true },
+  { key: "Turnover 1Y", label: "Turnover 1Y", fmt: "num" },
+];
+const state = { rows: [], q: "", minAum: 0, sortKey: "Return 1Y (%)", dir: -1 };
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const inr = new Intl.NumberFormat("en-IN", { maximumFractionDigits: 0 });
+
+function fmt(v, kind) {
+  if (v === null || v === undefined || v === "") return "";
+  if (kind === "aum") return inr.format(v);
+  if (kind === "pct") return (v > 0 ? "+" : "") + v.toFixed(1);
+  return Number(v).toFixed(2);
+}
+function heat(v) {
+  if (typeof v !== "number") return "";
+  const pct = Math.min(Math.abs(v) / 40, 1) * 32;
+  return `background: color-mix(in srgb, var(${v >= 0 ? "--gain" : "--loss"}) ${pct.toFixed(0)}%, transparent)`;
+}
+
+function renderHead() {
+  $("head").innerHTML = `<th class="name" data-key="Investment Approach">Strategy and provider</th>` +
+    COLS.map(c => `<th data-key="${esc(c.key)}" class="${c.group ? "group-start" : ""}">${esc(c.label)}</th>`).join("");
+  $("head").querySelectorAll("th").forEach(th => {
+    th.tabIndex = 0;
+    const act = () => {
+      const k = th.dataset.key;
+      state.dir = state.sortKey === k ? -state.dir : (k === "Investment Approach" ? 1 : -1);
+      state.sortKey = k; render();
+    };
+    th.addEventListener("click", act);
+    th.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); act(); } });
+  });
+  $("periods").innerHTML = COLS.filter(c => c.period)
+    .map(c => `<button type="button" data-key="${esc(c.key)}">${c.period}</button>`).join("");
+  $("periods").querySelectorAll("button").forEach(b =>
+    b.addEventListener("click", () => { state.sortKey = b.dataset.key; state.dir = -1; render(); }));
+}
+
+function filtered() {
+  const q = state.q.trim().toLowerCase();
+  let rows = state.rows.filter(r =>
+    (!q || `${r["Provider"]} ${r["Investment Approach"]}`.toLowerCase().includes(q)) &&
+    (state.minAum === 0 || (r["AUM (INR Cr)"] ?? 0) >= state.minAum));
+  const k = state.sortKey, d = state.dir;
+  return rows.sort((a, b) => {
+    const x = a[k], y = b[k];
+    if (x == null && y == null) return 0;
+    if (x == null) return 1;           // blanks always last
+    if (y == null) return -1;
+    return typeof x === "string" ? d * x.localeCompare(y) : d * (x - y);
+  });
+}
+
+function render() {
+  const rows = filtered();
+  $("head").querySelectorAll("th").forEach(th =>
+    th.dataset.key === state.sortKey ? th.setAttribute("aria-sort", state.dir < 0 ? "descending" : "ascending") : th.removeAttribute("aria-sort"));
+  $("periods").querySelectorAll("button").forEach(b => b.setAttribute("aria-pressed", b.dataset.key === state.sortKey));
+  $("count").textContent = `Showing ${rows.length.toLocaleString("en-IN")} of ${state.rows.length.toLocaleString("en-IN")} strategies`;
+  $("body").innerHTML = rows.length ? rows.map(r =>
+    `<tr><td class="name"><b>${esc(r["Investment Approach"])}</b><span>${esc(r["Provider"])}</span></td>` +
+    COLS.map(c => {
+      const v = r[c.key], txt = fmt(v, c.fmt);
+      const cls = [c.group ? "group-start" : "", c.key === state.sortKey ? "active" : "", txt === "" ? "na" : ""].join(" ");
+      return `<td class="${cls}" style="${c.fmt === "pct" ? heat(v) : ""}">${txt || "–"}</td>`;
+    }).join("") + `</tr>`).join("")
+    : `<tr><td class="empty" colspan="${COLS.length + 1}">No strategies match. Try a shorter search or a lower minimum AUM.</td></tr>`;
+}
+
+function downloadCsv() {
+  const keys = ["Provider", "Investment Approach", ...COLS.map(c => c.key)];
+  const lines = [keys.join(",")].concat(filtered().map(r =>
+    keys.map(k => { const v = r[k] ?? ""; return /[",\n]/.test(v) ? `"${String(v).replace(/"/g, '""')}"` : v; }).join(",")));
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([lines.join("\n")], { type: "text/csv" }));
+  a.download = `apmi_pms_${(state.asOn || "").replace(/\//g, "-")}.csv`;
+  a.click();
+}
+
+renderHead();
+$("q").addEventListener("input", e => { state.q = e.target.value; render(); });
+$("aum").addEventListener("change", e => { state.minAum = Number(e.target.value); render(); });
+$("dl").addEventListener("click", downloadCsv);
+
+fetch("data.json", { cache: "no-cache" })
+  .then(r => { if (!r.ok) throw new Error(r.status); return r.json(); })
+  .then(d => {
+    state.rows = d.rows || []; state.asOn = d.as_on;
+    $("stamp").innerHTML = `Data as on <strong>${esc(d.as_on)}</strong>. Last checked ${esc(d.updated_at)}.`;
+    render();
+  })
+  .catch(() => { $("stamp").textContent = "The data file couldn't be loaded. Check that docs/data.json exists in the repository."; });
+</script>
+</body>
+</html>
