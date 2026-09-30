@@ -25,7 +25,7 @@ import re
 import sys
 import time
 from datetime import datetime, timezone
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse
 
 import pandas as pd
 import requests
@@ -175,21 +175,23 @@ def role_of(labels):
 
 
 class ReportForm:
-    def __init__(self, html, page_url):
+    """APMI's report form: radio buttons for category/service, month+year dropdowns filled by JavaScript,
+    and a hidden asOnDate that the Submit button fills in."""
+
+    def __init__(self, html, page_url, session=None):
         soup = BeautifulSoup(html, "lxml")
-        self.soup = soup
+        self.soup, self.page_url, self.session = soup, page_url, session
         container = None
         for form in soup.find_all("form"):
-            if re.search(r"\bequity\b", norm(form.get_text(" "))) or any(
-                    squash(label_for(i, soup)) == "equity" for i in form.find_all("input")):
+            if form.find("input", attrs={"type": "radio"}) and re.search(r"\bequity\b", norm(form.get_text(" "))):
                 container = form
                 break
         self.is_form = container is not None
         self.container = container or soup.body or soup
-        self.action = urljoin(page_url, (container.get("action") if container else None) or page_url)
+        self.form_action = urljoin(page_url, (container.get("action") if container else "") or page_url)
         self.method = ((container.get("method") if container else None) or "post").lower()
-        self.fields = []   # (kind, name, role, options[(value,label)], default)
-        seen_radio = {}
+        self.fields = []   # [kind, name, role, options[(value,label)], default]
+        radios = {}
         for el in self.container.find_all(["select", "input", "textarea"]):
             name = el.get("name")
             if not name:
@@ -197,50 +199,76 @@ class ReportForm:
             if el.name == "select":
                 opts = [(o.get("value", o.get_text(strip=True)), o.get_text(" ", strip=True)) for o in el.find_all("option")]
                 sel = el.find("option", selected=True)
-                default = (sel.get("value", sel.get_text(strip=True)) if sel else (opts[0][0] if opts else ""))
-                self.fields.append(["select", name, role_of([o[1] for o in opts] + [o[0] for o in opts]), opts, default])
+                default = sel.get("value", sel.get_text(strip=True)) if sel else None
+                role = role_of([o[1] for o in opts] + [o[0] for o in opts]) if opts else "other"
+                if re.search(r"month", name, re.I) and not re.search(r"year", name, re.I):
+                    role = "month_part"
+                elif re.search(r"year", name, re.I):
+                    role = "year_part"
+                self.fields.append(["select", name, role, opts, default])
                 continue
             itype = (el.get("type") or "text").lower()
             if itype in ("submit", "button", "reset", "image", "file"):
                 continue
             if itype in ("radio", "checkbox"):
-                lab = label_for(el, soup)
-                if name not in seen_radio:
-                    seen_radio[name] = ["radio" if itype == "radio" else "checkbox", name, None, [], None]
-                    self.fields.append(seen_radio[name])
-                f = seen_radio[name]
-                f[3].append((el.get("value", "on"), lab))
+                if name not in radios:
+                    radios[name] = [itype, name, None, [], None]
+                    self.fields.append(radios[name])
+                radios[name][3].append((el.get("value", "on"), label_for(el, soup)))
                 if el.has_attr("checked"):
-                    f[4] = el.get("value", "on")
+                    radios[name][4] = el.get("value", "on")
                 continue
-            ident = f"{name} {el.get('id', '')} {el.get('placeholder', '')}"
-            role = "month" if re.search(r"month|date|year|ason|period", ident, re.I) else "other"
+            ident = f"{name} {el.get('id', '')}"
+            role = "date" if re.search(r"date|ason", ident, re.I) else "other"
             self.fields.append(["input", name, role, [], el.get("value", "")])
         for f in self.fields:
             if f[0] in ("radio", "checkbox"):
                 f[2] = role_of([o[1] for o in f[3]] + [o[0] for o in f[3]])
-        self.month_format = None
+        self.js = self._collect_js(html)
+        self.js_action = self._action_from_js()
+        self.locked = None   # (action, month_variant_index) once a request works
+
+    # ----- JavaScript: find the submit function to learn the real target URL
+    def _collect_js(self, html):
+        chunks = [s.string or "" for s in self.soup.find_all("script") if not s.get("src")]
+        if self.session is not None:
+            for s in self.soup.find_all("script", src=True):
+                src = urljoin(self.page_url, s["src"])
+                if urlparse(src).netloc != urlparse(self.page_url).netloc or re.search(r"jquery|bootstrap|popper|datatable|select2|moment|chart", src, re.I):
+                    continue
+                try:
+                    r = self.session.get(src, timeout=30)
+                    if r.ok:
+                        chunks.append(r.text)
+                except requests.RequestException:
+                    pass
+        return "\n".join(chunks)
+
+    def js_function(self, name):
+        m = re.search(r"function\s+" + re.escape(name) + r"\s*\([^)]*\)\s*\{", self.js)
+        if not m:
+            return None
+        depth, i = 0, m.end() - 1
+        while i < len(self.js):
+            if self.js[i] == "{":
+                depth += 1
+            elif self.js[i] == "}":
+                depth -= 1
+                if depth == 0:
+                    return self.js[m.start(): i + 1]
+            i += 1
+        return self.js[m.start(): m.start() + 3000]
+
+    def _action_from_js(self):
+        body = self.js_function("onClickSubmit") or ""
+        m = re.search(r"""\.action\s*=\s*["']([^"']+)["']""", body) or re.search(r"""(?:url|href)\s*[:=]\s*["']([^"']+\.htm[^"']*)["']""", body)
+        return urljoin(self.page_url, m.group(1)) if m else None
 
     def has(self, role):
         return any(f[2] == role for f in self.fields)
 
-    def month_options(self):
-        """Months offered by a month dropdown, as 'YYYY-MM' ids (empty if the month is a text box)."""
-        out = []
-        for f in self.fields:
-            if f[0] == "select" and f[2] == "month":
-                for value, label in f[3]:
-                    for text in (label, value):
-                        for fmt in ("%b-%Y", "%B-%Y", "%b %Y", "%B %Y", "%m-%Y", "%m/%Y", "%Y-%m", "%d/%m/%Y", "%d-%m-%Y", "%b-%y"):
-                            try:
-                                out.append(datetime.strptime(text.strip(), fmt).strftime("%Y-%m"))
-                                break
-                            except ValueError:
-                                continue
-                        else:
-                            continue
-                        break
-        return sorted(set(out), reverse=True)
+    def month_ready(self):
+        return self.has("date") or self.has("month_part") or self.has("month")
 
     @staticmethod
     def _pick(options, wanted):
@@ -250,115 +278,143 @@ class ReportForm:
                 return value
         return None
 
-    def payloads(self, category, service, mid):
-        """Yield candidate payloads (one per month format when the month is a text box)."""
-        variants = month_variants(mid)
-        order = [self.month_format] if self.month_format is not None else range(len(variants))
-        for mfmt in order:
-            data = {}
-            for kind, name, role, opts, default in self.fields:
-                if role == "category":
-                    v = self._pick(opts, category)
-                    if v is None:
-                        raise RuntimeError(f"'{category}' is not an option on APMI's form")
+    @staticmethod
+    def month_variants(mid):
+        y, m = mid.split("-")
+        d = datetime(int(y), int(m), 1)
+        last = month_end(mid)
+        mm_parts = [m, str(int(m)), d.strftime("%b"), d.strftime("%B")]
+        dates = [last, f"{m}/{y}", last.replace("/", "-"), f"{y}-{m}-{last[:2]}", f"{m}-{y}", d.strftime("%b-%Y")]
+        # most likely first: two-digit month + dd/mm/yyyy (the format APMI prints on the page)
+        return [(mp, y, dt) for dt in dates for mp in mm_parts]
+
+    def actions(self):
+        base = self.page_url.split("?")[0]
+        out = [a for a in (self.js_action, self.form_action, self.page_url, base) if a]
+        return list(dict.fromkeys(out))
+
+    def payload(self, category, service, mid, variant):
+        month_part, year_part, date_value = self.month_variants(mid)[variant]
+        data = {}
+        for kind, name, role, opts, default in self.fields:
+            if role == "category":
+                v = self._pick(opts, category)
+                if v is None:
+                    raise RuntimeError(f"'{category}' is not an option on APMI's form")
+                data[name] = v
+            elif role == "service":
+                v = self._pick(opts, service)
+                if v is None:
+                    raise RuntimeError(f"'{service}' is not an option on APMI's form")
+                data[name] = v
+            elif role == "month_part":
+                data[name] = month_part
+            elif role == "year_part":
+                data[name] = year_part
+            elif role == "date":
+                data[name] = date_value
+            elif role == "month" and kind == "select":
+                v = next((val for val, lab in opts for var in (date_value, month_end(mid)) if squash(lab) == squash(var) or squash(val) == squash(var)), None)
+                if v is not None:
                     data[name] = v
-                elif role == "service":
-                    v = self._pick(opts, service)
-                    if v is None:
-                        raise RuntimeError(f"'{service}' is not an option on APMI's form")
-                    data[name] = v
-                elif role == "month":
-                    if kind == "select":
-                        v = next((val for val, lab in opts for var in month_variants(mid)
-                                  if squash(lab) == squash(var) or squash(val) == squash(var)), None)
-                        if v is None:
-                            raise RuntimeError(f"month {mid} not offered by APMI")
-                        data[name] = v
-                    else:
-                        data[name] = variants[mfmt]
-                elif role == "filter" and kind == "select":
-                    blank = next((val for val, lab in opts if val in ("", "0", "-1") or re.search(r"select|all", norm(lab))), None)
-                    if blank is not None:
-                        data[name] = blank
-                elif kind in ("radio", "checkbox"):
-                    if default is not None:
-                        data[name] = default
-                elif default is not None:
+            elif role == "filter":
+                blank = next((val for val, lab in opts if val in ("", "0", "-1") or re.search(r"select|all", norm(lab))), None)
+                if blank is not None:
+                    data[name] = blank
+            elif kind in ("radio", "checkbox"):
+                if default is not None:
                     data[name] = default
-            yield mfmt, data
-            if not any(f[2] == "month" and f[0] == "input" for f in self.fields):
-                break  # month isn't a text box, so one attempt is enough
+            elif default is not None:
+                data[name] = default
+        return data
 
-
-def diagnose(html, label):
-    """Print what's on the page so the form can be matched precisely."""
-    if label in _diagnosed:
-        return
-    _diagnosed.add(label)
-    soup = BeautifulSoup(html, "lxml")
-    print(f"\n----- DIAGNOSTICS: {label} -----")
-    print(f"forms on page: {len(soup.find_all('form'))}")
-    for i, form in enumerate(soup.find_all("form")):
-        print(f"form #{i}: action={form.get('action')!r} method={form.get('method')!r} "
-              f"onsubmit={str(form.get('onsubmit'))[:80]!r} id={form.get('id')!r} name={form.get('name')!r}")
-    for el in soup.find_all(["select", "input", "button"])[:60]:
-        if el.name == "select":
-            opts = [(o.get("value"), o.get_text(strip=True)) for o in el.find_all("option")][:6]
-            print(f"  select name={el.get('name')!r} id={el.get('id')!r} onchange={str(el.get('onchange'))[:60]!r} options={opts}")
+    def post(self, session, action, data):
+        time.sleep(DELAY_SECONDS)
+        if self.method == "get":
+            r = session.get(action, params=data, timeout=60)
         else:
-            print(f"  {el.name} type={el.get('type')!r} name={el.get('name')!r} id={el.get('id')!r} "
-                  f"value={str(el.get('value'))[:40]!r} onclick={str(el.get('onclick'))[:60]!r} label={label_for(el, soup)[:30]!r}")
-    text = str(soup)
-    i = text.lower().find("equity")
-    if i >= 0:
-        print("  html around 'Equity':", re.sub(r"\s+", " ", text[max(0, i - 400): i + 400]))
-    for s in soup.find_all("script"):
-        body = s.string or ""
-        if re.search(r"submit|\.htm|ajax|action", body, re.I):
-            print("  script:", re.sub(r"\s+", " ", body)[:500])
-    print("----- END DIAGNOSTICS -----\n")
+            r = session.post(action, data=data, timeout=60, headers={"Referer": self.page_url})
+        r.raise_for_status()
+        return r.text
+
+    def probe(self, session, mid, parse, equity_names):
+        """Find an (action, month format) that returns genuine Debt data for this month."""
+        want = month_end(mid)
+        n = len(self.month_variants(mid))
+        for action in self.actions():
+            for variant in range(n):
+                try:
+                    html = self.post(session, action, self.payload("Debt", "Discretionary", mid, variant))
+                except Exception as e:
+                    print(f"    probe {action} #{variant}: error {e}")
+                    continue
+                got = extract_as_on(html)
+                df = parse(html)
+                names = ia_names(df)
+                ok = got == want and df is not None and len(df) and names != equity_names
+                if ok:
+                    self.locked = (action, variant)
+                    print(f"    probe OK: {action} with month format #{variant} {self.month_variants(mid)[variant]}")
+                    return True
+            print(f"    probe: {action} didn't return Debt data")
+        return False
+
+    def fetch_report(self, session, category, service, mid):
+        if self.locked is None:
+            raise RuntimeError("form not working yet")
+        action, variant = self.locked
+        html = self.post(session, action, self.payload(category, service, mid, variant))
+        got = extract_as_on(html)
+        if got != month_end(mid):
+            raise RuntimeError(f"APMI returned data as on {got} instead of {month_end(mid)}")
+        return html
 
 
-# ================================================================ fetching one report
 def fetch(session, url):
     resp = session.get(url, timeout=60)
     resp.raise_for_status()
     return resp.text
 
 
-def submit(session, form, category, service, mid):
-    want = month_end(mid)
-    last_as_on = None
-    for mfmt, data in form.payloads(category, service, mid):
-        time.sleep(DELAY_SECONDS)
-        if form.method == "get":
-            resp = session.get(form.action, params=data, timeout=60)
+def diagnose(html, label, form=None):
+    """Print what's on the page (and the submit JavaScript) so the form can be matched precisely."""
+    if label in _diagnosed:
+        return
+    _diagnosed.add(label)
+    soup = BeautifulSoup(html, "lxml")
+    print(f"\n----- DIAGNOSTICS: {label} -----")
+    for i, f in enumerate(soup.find_all("form")):
+        print(f"form #{i}: action={f.get('action')!r} method={f.get('method')!r} name={f.get('name')!r}")
+    for el in soup.find_all(["select", "input"])[:40]:
+        if el.name == "select":
+            opts = [(o.get("value"), o.get_text(strip=True)) for o in el.find_all("option")][:4]
+            print(f"  select name={el.get('name')!r} onchange={str(el.get('onchange'))[:90]!r} options={opts}")
         else:
-            resp = session.post(form.action, data=data, timeout=60)
-        resp.raise_for_status()
-        last_as_on = extract_as_on(resp.text)
-        if last_as_on == want:
-            form.month_format = mfmt
-            return resp.text
-    raise RuntimeError(f"APMI returned data as on {last_as_on} instead of {want}")
+            print(f"  input type={el.get('type')!r} name={el.get('name')!r} value={str(el.get('value'))[:30]!r} onchange={str(el.get('onchange'))[:60]!r}")
+    print("  scripts:", [s.get("src") for s in soup.find_all("script", src=True)])
+    if form is not None:
+        print(f"  form actions tried: {form.actions()}")
+        for fn in ("onClickSubmit", "PerformanceMonth", "onChangeMonth", "strategytype", "getSelectedData"):
+            body = form.js_function(fn)
+            print(f"\n  JS {fn}:", re.sub(r"\s+", " ", body)[:2500] if body else "(not found)")
+    print("----- END DIAGNOSTICS -----\n")
 
 
-def scrape_month(session, perf_form, turn_form, mid, default_perf, is_latest):
-    frames, failures = [], []
-    default_equity = ia_names(default_perf)
+def scrape_month(session, perf_form, turn_form, mid):
+    frames, failures, seen = [], [], {}
     for category in CATEGORIES:
         for service in SERVICES:
             label = f"{mid} {category} / {service}"
             try:
-                perf_html = submit(session, perf_form, category, service, mid)
-                turn_html = submit(session, turn_form, category, service, mid)
-                perf, turn = parse_performance(perf_html), parse_turnover(turn_html)
+                perf = parse_performance(perf_form.fetch_report(session, category, service, mid))
+                turn = parse_turnover(turn_form.fetch_report(session, category, service, mid))
                 if perf is None and turn is None:
                     print(f"  {label}: no strategies listed")
                     continue
-                # Guard: if a non-equity request returns exactly the equity list, the filter was ignored
-                if is_latest and category != "Equity" and perf is not None and default_equity and ia_names(perf) == default_equity:
-                    raise RuntimeError("APMI ignored the category and returned the Equity list")
+                names = frozenset(ia_names(perf if perf is not None else turn))
+                if names and names in seen:
+                    raise RuntimeError(f"same list as {seen[names]}; APMI ignored the filter")
+                seen[names] = f"{category} / {service}"
                 combined = merge(perf, turn)
                 combined.insert(0, "Service Type", service)
                 combined.insert(0, "Category", category)
@@ -367,6 +423,9 @@ def scrape_month(session, perf_form, turn_form, mid, default_perf, is_latest):
             except Exception as e:
                 failures.append(f"{category} / {service}")
                 print(f"  {label}: FAILED ({e})")
+                if not frames and category == "Equity" and service == SERVICES[0] and "as on None" in str(e):
+                    print(f"  {mid}: APMI has no data for this month")
+                    return [], ["no data"]
     return frames, failures
 
 
@@ -442,39 +501,42 @@ def main():
     turn_default = fetch(session, TURN_URL)
 
     if args.inspect:
-        diagnose(perf_default, "IA Performance page")
-        diagnose(turn_default, "IA Turnover page")
+        diagnose(perf_default, "IA Performance page", ReportForm(perf_default, PERF_URL, session))
+        diagnose(turn_default, "IA Turnover page", ReportForm(turn_default, TURN_URL, session))
         return
 
     latest_as_on = extract_as_on(perf_default)
     latest = month_id(latest_as_on)
     print(f"Latest month on APMI: {latest_as_on}")
 
-    perf_form, turn_form = ReportForm(perf_default, PERF_URL), ReportForm(turn_default, TURN_URL)
-    print(f"Performance page: form={'yes' if perf_form.is_form else 'no (loose fields)'}; "
-          f"category={perf_form.has('category')} service={perf_form.has('service')} month={perf_form.has('month')}")
-    print(f"Turnover page:    form={'yes' if turn_form.is_form else 'no (loose fields)'}; "
-          f"category={turn_form.has('category')} service={turn_form.has('service')} month={turn_form.has('month')}")
-    forms_ok = perf_form.has("category") and turn_form.has("category")
-    if not forms_ok:
-        diagnose(perf_default, "IA Performance page")
-        diagnose(turn_default, "IA Turnover page")
+    perf_form = ReportForm(perf_default, PERF_URL, session)
+    turn_form = ReportForm(turn_default, TURN_URL, session)
+    for label, f in (("Performance", perf_form), ("Turnover", turn_form)):
+        print(f"{label} page: category={f.has('category')} service={f.has('service')} "
+              f"month={f.month_ready()} submit-script-target={f.js_action}")
 
     default_perf = parse_performance(perf_default)
+    equity_names = ia_names(default_perf)
+
+    print("\nChecking how APMI's form accepts requests:")
+    forms_ok = (perf_form.has("category") and turn_form.has("category")
+                and perf_form.probe(session, latest, parse_performance, equity_names)
+                and turn_form.probe(session, latest, parse_turnover, ia_names(parse_turnover(turn_default))))
+    if not forms_ok:
+        diagnose(perf_default, "IA Performance page", perf_form)
+        diagnose(turn_default, "IA Turnover page", turn_form)
 
     # ---------- latest month
-    frames, failures = ([], CATEGORIES)
+    frames, failures = [], []
     if forms_ok:
         print(f"\nLatest month {latest}:")
-        frames, failures = scrape_month(session, perf_form, turn_form, latest, default_perf, True)
-        if failures:
-            diagnose(perf_default, "IA Performance page")
+        frames, failures = scrape_month(session, perf_form, turn_form, latest)
     if not frames:
-        print("Category requests failed; saving APMI's default view so the site still updates.")
+        print("Category requests aren't working yet; saving APMI's default Equity view so the site still updates.")
         data = merge(default_perf, parse_turnover(turn_default))
         data.insert(0, "Service Type", "Default view")
         data.insert(0, "Category", "Equity")
-        failures = [f"{c} / {s}" for c in CATEGORIES for s in SERVICES]
+        failures = ["default-only"]
     else:
         data = pd.concat(frames, ignore_index=True)
     data.insert(0, "As On", latest_as_on)
@@ -489,45 +551,32 @@ def main():
     print(f"Saved latest month: {len(data)} strategies")
 
     # ---------- older months
-    if forms_ok and frames and args.backfill > 0 and perf_form.has("month"):
-        offered = perf_form.month_options()
-        candidates = offered[1:] if offered else []
-        if not candidates:
-            m = prev_month(latest)
-            while m >= args.earliest:
-                candidates.append(m)
-                m = prev_month(m)
-        done, empty_streak = 0, 0
-        for mid in candidates:
-            if mid < args.earliest or done >= args.backfill:
-                break
-            if history_is_complete(args.site, mid):
-                continue
-            print(f"\nHistory {mid}:")
-            try:
-                f_hist, fail_hist = scrape_month(session, perf_form, turn_form, mid, default_perf, False)
-            except Exception as e:
-                print(f"  {mid}: FAILED ({e})")
-                f_hist, fail_hist = [], ["all"]
-            if not f_hist:
-                empty_streak += 1
-                if empty_streak >= 3 and not offered:
-                    print("  Three months in a row with no data; assuming APMI's history ends here.")
-                    break
-                continue
-            empty_streak = 0
-            hist = pd.concat(f_hist, ignore_index=True)
-            hist.insert(0, "As On", month_end(mid))
-            write_json(os.path.join(args.site, "history", f"{mid}.json"), month_payload(hist, month_end(mid), fail_hist))
-            done += 1
-            print(f"  saved {mid}: {len(hist)} strategies")
+    if forms_ok and frames and args.backfill > 0:
+        done, empty_streak, mid = 0, 0, prev_month(latest)
+        while mid >= args.earliest and done < args.backfill:
+            if not history_is_complete(args.site, mid):
+                print(f"\nHistory {mid}:")
+                f_hist, fail_hist = scrape_month(session, perf_form, turn_form, mid)
+                if f_hist:
+                    empty_streak = 0
+                    hist = pd.concat(f_hist, ignore_index=True)
+                    hist.insert(0, "As On", month_end(mid))
+                    write_json(os.path.join(args.site, "history", f"{mid}.json"), month_payload(hist, month_end(mid), fail_hist))
+                    done += 1
+                    print(f"  saved {mid}: {len(hist)} strategies")
+                else:
+                    empty_streak += 1
+                    if empty_streak >= 3:
+                        print("  Three months in a row with no data; assuming APMI's history ends here.")
+                        break
+            mid = prev_month(mid)
     elif args.backfill > 0:
-        print("\nSkipping history backfill until category/month requests work.")
+        print("\nSkipping history until category requests work.")
 
     months = rebuild_index(args.site)
     print(f"\nMonths available on the site: {', '.join(m['id'] for m in months)}")
     if failures:
-        print(f"Failed this run: {', '.join(failures)}")
+        print(f"Not collected this run: {', '.join(failures)}")
 
 
 if __name__ == "__main__":
