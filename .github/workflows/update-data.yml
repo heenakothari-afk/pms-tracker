@@ -11,16 +11,18 @@ permissions:
 jobs:
   scrape:
     runs-on: ubuntu-latest
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
       - run: pip install -r requirements.txt
-      - run: python apmi_scraper.py --out docs/apmi_pms_data.xlsx --json docs/data.json
+      - name: Run scraper
+        run: python apmi_scraper.py --site docs
       - name: Save new data
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add docs/data.json docs/apmi_pms_data.xlsx
+          git add docs
           git diff --cached --quiet || (git commit -m "Update APMI data" && git push)
