@@ -464,7 +464,34 @@ def rebuild_index(site):
             cats = sorted({r.get("Category") or "Equity" for r in d.get("rows", [])})
             months.append({"id": fn[:-5], "as_on": d.get("as_on"), "strategies": len(d.get("rows", [])), "categories": cats})
     write_json(os.path.join(site, "months.json"), {"latest": months[0]["id"] if months else None, "months": months})
+    build_series(site, [m["id"] for m in months])
     return months
+
+
+def fund_key(row):
+    return "|".join(norm(row.get(k) or d) for k, d in (("Provider", ""), ("Investment Approach", ""),
+                                                          ("Category", "Equity"), ("Service Type", "")))
+
+
+def build_series(site, month_ids):
+    """One compact file with every fund's month-by-month 1M return, AUM and turnover."""
+    ids = sorted(month_ids)
+    pos = {m: i for i, m in enumerate(ids)}
+    funds = {}
+    for mid in ids:
+        with open(os.path.join(site, "history", f"{mid}.json"), encoding="utf-8") as f:
+            rows = json.load(f).get("rows", [])
+        for r in rows:
+            if r.get("Service Type") == "Default view":
+                continue
+            k = fund_key(r)
+            entry = funds.setdefault(k, {"r": [None] * len(ids), "a": [None] * len(ids), "t": [None] * len(ids)})
+            i = pos[mid]
+            for field, col in (("r", "Return 1M (%)"), ("a", "AUM (INR Cr)"), ("t", "Turnover 1M")):
+                v = r.get(col)
+                entry[field][i] = round(v, 2) if isinstance(v, (int, float)) else None
+    write_json(os.path.join(site, "series.json"), {"months": ids, "funds": funds})
+    print(f"Saved series.json: {len(funds)} funds across {len(ids)} months")
 
 
 def history_is_complete(site, mid):
