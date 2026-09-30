@@ -8,7 +8,6 @@ Source: https://www.apmiindia.org (IA Performance Report + IA Turnover Report)
 Install:  pip install requests beautifulsoup4 pandas openpyxl lxml
 Run:      python apmi_scraper.py --site docs            # latest month + backfill history
           python apmi_scraper.py --site docs --backfill 0   # latest month only
-          python apmi_scraper.py --inspect               # print what the report pages contain
 
 Writes (inside --site folder):
   data.json               latest month (what the website opens by default)
@@ -38,7 +37,7 @@ TURN_URL = BASE + "IATurnoverReportUtility.htm?action=loadIATurnoverPage"
 CATEGORIES = ["Equity", "Debt", "Hybrid", "Multi Asset"]
 SERVICES = ["Discretionary", "Non Discretionary"]
 HEADERS = {"User-Agent": "Mozilla/5.0 (PMS Tracker research script)", "Accept-Language": "en-IN,en;q=0.9"}
-DELAY_SECONDS = 3
+DELAY_SECONDS = 2
 _diagnosed = set()
 
 
@@ -52,7 +51,8 @@ def squash(text):
 
 
 def clean_number(value):
-    text = str(value or "").replace("₹", "").replace(",", "").strip()
+    text = str(value or "").replace(",", "").strip()
+    text = re.sub(r"^[^\d\-.NAna/]+", "", text)   # drop ₹ (or a garbled version of it)
     if text.upper() in {"", "NA", "N/A", "-", "--"}:
         return None
     try:
@@ -141,281 +141,229 @@ def ia_names(df):
     return set() if df is None else set(df["Investment Approach"].map(norm))
 
 
-# ================================================================ report form (dropdowns, radios, or loose fields)
-def label_for(el, soup):
-    """Visible text next to a radio/checkbox."""
-    if el.get("id"):
-        lab = soup.find("label", attrs={"for": el["id"]})
-        if lab:
-            return lab.get_text(" ", strip=True)
-    if el.parent is not None and el.parent.name == "label":
-        return el.parent.get_text(" ", strip=True)
-    sib = el.next_sibling
-    while sib is not None and getattr(sib, "name", None) not in ("input", "select", "br"):
-        text = sib.get_text(" ", strip=True) if hasattr(sib, "get_text") else str(sib).strip()
-        if text:
-            return text
-        sib = sib.next_sibling
-    return el.get("value", "")
+# ================================================================ APMI's background (AJAX) requests
+AJAX_HEADERS = {"X-Requested-With": "XMLHttpRequest",
+                "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8"}
 
 
-def role_of(labels):
-    texts = {squash(t) for t in labels}
-    if "equity" in texts or "debt" in texts:
-        return "category"
-    if "discretionary" in texts or "nondiscretionary" in texts:
-        return "service"
-    if any(re.search(r"(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\d{2,4}|\d{1,2}\d{4}", t) for t in texts) and len(texts) > 3:
-        return "month"
-    if any("tri" in norm(t).split() or "nifty" in norm(t) or "bse" in norm(t) or "crisil" in norm(t) for t in labels):
-        return "benchmark"
-    if len(texts) > 20:
-        return "filter"
-    return "other"
+def js_sources(session, page_url, html):
+    soup = BeautifulSoup(html, "lxml")
+    chunks = [s.string or "" for s in soup.find_all("script") if not s.get("src")]
+    for s in soup.find_all("script", src=True):
+        src = urljoin(page_url, s["src"])
+        if urlparse(src).netloc != urlparse(page_url).netloc:
+            continue
+        if re.search(r"jquery-|bootstrap|popper|datatables|moment|multiselect|bootbox|topbookmark", src, re.I):
+            continue
+        try:
+            r = session.get(src, timeout=30)
+            if r.ok:
+                chunks.append(f"/* {src} */\n" + r.text)
+        except requests.RequestException:
+            pass
+    return "\n".join(chunks)
 
 
-class ReportForm:
-    """APMI's report form: radio buttons for category/service, month+year dropdowns filled by JavaScript,
-    and a hidden asOnDate that the Submit button fills in."""
-
-    def __init__(self, html, page_url, session=None):
-        soup = BeautifulSoup(html, "lxml")
-        self.soup, self.page_url, self.session = soup, page_url, session
-        container = None
-        for form in soup.find_all("form"):
-            if form.find("input", attrs={"type": "radio"}) and re.search(r"\bequity\b", norm(form.get_text(" "))):
-                container = form
-                break
-        self.is_form = container is not None
-        self.container = container or soup.body or soup
-        self.form_action = urljoin(page_url, (container.get("action") if container else "") or page_url)
-        self.method = ((container.get("method") if container else None) or "post").lower()
-        self.fields = []   # [kind, name, role, options[(value,label)], default]
-        radios = {}
-        for el in self.container.find_all(["select", "input", "textarea"]):
-            name = el.get("name")
-            if not name:
-                continue
-            if el.name == "select":
-                opts = [(o.get("value", o.get_text(strip=True)), o.get_text(" ", strip=True)) for o in el.find_all("option")]
-                sel = el.find("option", selected=True)
-                default = sel.get("value", sel.get_text(strip=True)) if sel else None
-                role = role_of([o[1] for o in opts] + [o[0] for o in opts]) if opts else "other"
-                if re.search(r"month", name, re.I) and not re.search(r"year", name, re.I):
-                    role = "month_part"
-                elif re.search(r"year", name, re.I):
-                    role = "year_part"
-                self.fields.append(["select", name, role, opts, default])
-                continue
-            itype = (el.get("type") or "text").lower()
-            if itype in ("submit", "button", "reset", "image", "file"):
-                continue
-            if itype in ("radio", "checkbox"):
-                if name not in radios:
-                    radios[name] = [itype, name, None, [], None]
-                    self.fields.append(radios[name])
-                radios[name][3].append((el.get("value", "on"), label_for(el, soup)))
-                if el.has_attr("checked"):
-                    radios[name][4] = el.get("value", "on")
-                continue
-            ident = f"{name} {el.get('id', '')}"
-            role = "date" if re.search(r"date|ason", ident, re.I) else "other"
-            self.fields.append(["input", name, role, [], el.get("value", "")])
-        for f in self.fields:
-            if f[0] in ("radio", "checkbox"):
-                f[2] = role_of([o[1] for o in f[3]] + [o[0] for o in f[3]])
-        self.js = self._collect_js(html)
-        self.js_action = self._action_from_js()
-        self.locked = None   # (action, month_variant_index) once a request works
-
-    # ----- JavaScript: find the submit function to learn the real target URL
-    def _collect_js(self, html):
-        chunks = [s.string or "" for s in self.soup.find_all("script") if not s.get("src")]
-        if self.session is not None:
-            for s in self.soup.find_all("script", src=True):
-                src = urljoin(self.page_url, s["src"])
-                if urlparse(src).netloc != urlparse(self.page_url).netloc or re.search(r"jquery|bootstrap|popper|datatable|select2|moment|chart", src, re.I):
-                    continue
-                try:
-                    r = self.session.get(src, timeout=30)
-                    if r.ok:
-                        chunks.append(r.text)
-                except requests.RequestException:
-                    pass
-        return "\n".join(chunks)
-
-    def js_function(self, name):
-        m = re.search(r"function\s+" + re.escape(name) + r"\s*\([^)]*\)\s*\{", self.js)
-        if not m:
-            return None
-        depth, i = 0, m.end() - 1
-        while i < len(self.js):
-            if self.js[i] == "{":
-                depth += 1
-            elif self.js[i] == "}":
-                depth -= 1
-                if depth == 0:
-                    return self.js[m.start(): i + 1]
-            i += 1
-        return self.js[m.start(): m.start() + 3000]
-
-    def _action_from_js(self):
-        body = self.js_function("onClickSubmit") or ""
-        m = re.search(r"""\.action\s*=\s*["']([^"']+)["']""", body) or re.search(r"""(?:url|href)\s*[:=]\s*["']([^"']+\.htm[^"']*)["']""", body)
-        return urljoin(self.page_url, m.group(1)) if m else None
-
-    def has(self, role):
-        return any(f[2] == role for f in self.fields)
-
-    def month_ready(self):
-        return self.has("date") or self.has("month_part") or self.has("month")
-
-    @staticmethod
-    def _pick(options, wanted):
-        w = squash(wanted)
-        for value, label in options:
-            if squash(label) == w or squash(value) == w:
-                return value
+def js_function(js, name):
+    m = re.search(r"function\s+" + re.escape(name) + r"\s*\([^)]*\)\s*\{", js)
+    if not m:
         return None
+    depth, i = 0, m.end() - 1
+    while i < len(js):
+        if js[i] == "{":
+            depth += 1
+        elif js[i] == "}":
+            depth -= 1
+            if depth == 0:
+                return js[m.start(): i + 1]
+        i += 1
+    return js[m.start(): m.start() + 4000]
 
-    @staticmethod
-    def month_variants(mid):
+
+def js_actions(js):
+    """Every 'something.htm?action=xyz' the page's JavaScript calls."""
+    return list(dict.fromkeys(re.findall(r"""["']([A-Za-z]+\.htm\?action=[A-Za-z0-9_]+)""", js)))
+
+
+def options_in(html):
+    soup = BeautifulSoup(html or "", "lxml")
+    return [o.get("value") for o in soup.find_all("option") if o.get("value") not in (None, "", "0", "-1")]
+
+
+def parse_rows_fallback(html, ncols, colnames):
+    """If APMI returns only table rows (no header), map cells by position."""
+    soup = BeautifulSoup(html or "", "lxml")
+    rows = [[c.get_text(" ", strip=True) for c in tr.find_all("td")] for tr in soup.find_all("tr")]
+    rows = [r for r in rows if len(r) == ncols]
+    if not rows:
+        return None
+    df = pd.DataFrame(rows, columns=colnames)
+    for col in colnames[2:]:
+        df[col] = df[col].map(clean_number)
+    return df
+
+
+def parse_perf_any(html):
+    df = parse_performance(html)
+    return df if df is not None else parse_rows_fallback(html, 12, list(PERF_COLS.values()))
+
+
+def parse_turn_any(html):
+    df = parse_turnover(html)
+    return df if df is not None else parse_rows_fallback(html, 4, list(TURN_COLS.values()))
+
+
+def date_formats(mid):
+    y, m = mid.split("-")
+    d = month_end(mid)[:2]
+    # APMI's own script builds year-month-day with the month unpadded, e.g. 2026-8-31
+    return [f"{y}-{int(m)}-{d}", f"{y}-{m}-{d}", month_end(mid)]
+
+
+class ApmiReport:
+    def __init__(self, session, page_url, html, kind):
+        self.session, self.page_url, self.kind = session, page_url, kind
+        self.js = js_sources(session, page_url, html)
+        self.actions = js_actions(self.js)
+        self.parse = parse_perf_any if kind == "perf" else parse_turn_any
+        soup = BeautifulSoup(html, "lxml")
+        radio_names = {i.get("name") for i in soup.find_all("input", attrs={"type": "radio"})}
+        self.cat_field = next((n for n in radio_names if n and re.search(r"str[ae]t[ae]gy", n, re.I)), "strategyname")
+        self.default_names = ia_names(self.parse(html))
+        self.lists = {}
+        self.locked = None
+        self.log = []
+
+    def url(self, action):
+        return urljoin(self.page_url, action)
+
+    def call(self, action, data, method="post"):
+        time.sleep(DELAY_SECONDS)
+        headers = dict(AJAX_HEADERS, Referer=self.page_url)
+        if method == "post":
+            r = self.session.post(self.url(action), data=data, headers=headers, timeout=90)
+        else:
+            r = self.session.get(self.url(action), params=data, headers=headers, timeout=90)
+        if "charset" not in r.headers.get("Content-Type", "").lower():
+            r.encoding = "utf-8"
+        return r
+
+    def report_actions(self):
+        acts = [a for a in self.actions if not re.search(r"loadPms|loadIaname|getIa|IaUsing|IabyPMS|Page$|PMSmenu", a)
+                and not re.search(r"benchmark|chart|insight", a, re.I)]
+        preferred = [a for a in acts if re.search(r"report|data|turnover", a, re.I)]
+        return list(dict.fromkeys(preferred + acts))
+
+    def ia_lists(self, category, service):
+        """Provider and investment-approach IDs for a category, like the page loads them."""
+        key = (category, service)
+        if key in self.lists:
+            return self.lists[key]
+        providers, ias = [], []
+        pms_action = next((a for a in self.actions if re.search(r"loadPms", a)), None)
+        ia_action = next((a for a in self.actions if re.search(r"loadIaname|getIa|IaUsing|IabyPMS", a)), None)
+        base = {"strategyname": category, "stretegyname": category, "service": service, "servicetype": service}
+        try:
+            if pms_action:
+                providers = options_in(self.call(pms_action, dict(base, pmsProviderName="")).text)
+            if ia_action:
+                ias = options_in(self.call(ia_action, dict(base, pmsProviderName=",".join(providers), pmsProvideName=",".join(providers))).text)
+        except requests.RequestException as e:
+            self.log.append(f"list lookup failed: {e}")
+        self.lists[key] = (providers, ias)
+        return providers, ias
+
+    def payload(self, category, service, mid, style, date_fmt):
         y, m = mid.split("-")
-        d = datetime(int(y), int(m), 1)
-        last = month_end(mid)
-        mm_parts = [m, str(int(m)), d.strftime("%b"), d.strftime("%B")]
-        dates = [last, f"{m}/{y}", last.replace("/", "-"), f"{y}-{m}-{last[:2]}", f"{m}-{y}", d.strftime("%b-%Y")]
-        # most likely first: two-digit month + dd/mm/yyyy (the format APMI prints on the page)
-        return [(mp, y, dt) for dt in dates for mp in mm_parts]
-
-    def actions(self):
-        base = self.page_url.split("?")[0]
-        out = [a for a in (self.js_action, self.form_action, self.page_url, base) if a]
-        return list(dict.fromkeys(out))
-
-    def payload(self, category, service, mid, variant):
-        month_part, year_part, date_value = self.month_variants(mid)[variant]
-        data = {}
-        for kind, name, role, opts, default in self.fields:
-            if role == "category":
-                v = self._pick(opts, category)
-                if v is None:
-                    raise RuntimeError(f"'{category}' is not an option on APMI's form")
-                data[name] = v
-            elif role == "service":
-                v = self._pick(opts, service)
-                if v is None:
-                    raise RuntimeError(f"'{service}' is not an option on APMI's form")
-                data[name] = v
-            elif role == "month_part":
-                data[name] = month_part
-            elif role == "year_part":
-                data[name] = year_part
-            elif role == "date":
-                data[name] = date_value
-            elif role == "month" and kind == "select":
-                v = next((val for val, lab in opts for var in (date_value, month_end(mid)) if squash(lab) == squash(var) or squash(val) == squash(var)), None)
-                if v is not None:
-                    data[name] = v
-            elif role == "filter":
-                blank = next((val for val, lab in opts if val in ("", "0", "-1") or re.search(r"select|all", norm(lab))), None)
-                if blank is not None:
-                    data[name] = blank
-            elif kind in ("radio", "checkbox"):
-                if default is not None:
-                    data[name] = default
-            elif default is not None:
-                data[name] = default
+        providers, ias = self.ia_lists(category, service)
+        data = {self.cat_field: category, "servicetype": service,
+                "fromMonth": str(int(m)), "fromYears": y, "asOnDate": date_formats(mid)[date_fmt]}
+        if self.kind == "perf":
+            data["SelectedBenchmark"] = "22"
+        if style == "joined":
+            data["pmsProvideName"], data["pmsInvAprochName"] = ",".join(providers), ",".join(ias)
+        elif style == "repeated":
+            data["pmsProvideName"], data["pmsInvAprochName"] = providers, ias
+        elif style == "empty":
+            data["pmsProvideName"], data["pmsInvAprochName"] = "", ""
         return data
 
-    def post(self, session, action, data):
-        time.sleep(DELAY_SECONDS)
-        if self.method == "get":
-            r = session.get(action, params=data, timeout=60)
-        else:
-            r = session.post(action, data=data, timeout=60, headers={"Referer": self.page_url})
-        r.raise_for_status()
-        return r.text
+    def attempts(self):
+        styles = ["joined", "repeated", "empty", "omit"]
+        for action in self.report_actions():
+            for style in styles:
+                for date_fmt in range(3):
+                    for method in ("post", "get"):
+                        yield action, style, date_fmt, method
 
-    def probe(self, session, mid, parse, equity_names):
-        """Find an (action, month format) that returns genuine Debt data for this month."""
-        want = month_end(mid)
-        n = len(self.month_variants(mid))
-        for action in self.actions():
-            for variant in range(n):
-                try:
-                    html = self.post(session, action, self.payload("Debt", "Discretionary", mid, variant))
-                except Exception as e:
-                    print(f"    probe {action} #{variant}: error {e}")
-                    continue
-                got = extract_as_on(html)
-                df = parse(html)
-                names = ia_names(df)
-                ok = got == want and df is not None and len(df) and names != equity_names
-                if ok:
-                    self.locked = (action, variant)
-                    print(f"    probe OK: {action} with month format #{variant} {self.month_variants(mid)[variant]}")
-                    return True
-            print(f"    probe: {action} didn't return Debt data")
+    def probe(self, mid):
+        tried = 0
+        for action, style, date_fmt, method in self.attempts():
+            tried += 1
+            if tried > 60:
+                break
+            try:
+                r = self.call(action, self.payload("Debt", "D", mid, style, date_fmt), method)
+            except requests.RequestException as e:
+                self.log.append(f"{action} {style} date#{date_fmt} {method}: error {e}")
+                continue
+            df = self.parse(r.text) if r.ok else None
+            names = ia_names(df)
+            snippet = re.sub(r"\s+", " ", BeautifulSoup(r.text, "lxml").get_text(" "))[:160]
+            self.log.append(f"{action} {style} date#{date_fmt} {method}: HTTP {r.status_code}, rows={0 if df is None else len(df)} | {snippet}")
+            if r.ok and df is not None and len(df) and names != self.default_names:
+                self.locked = (action, style, date_fmt, method)
+                print(f"    {self.kind} probe OK: {action} ({style}, date {date_formats(mid)[date_fmt]}, {method.upper()})")
+                return True
+        print(f"    {self.kind} probe failed after {tried} attempts")
         return False
 
-    def fetch_report(self, session, category, service, mid):
-        if self.locked is None:
-            raise RuntimeError("form not working yet")
-        action, variant = self.locked
-        html = self.post(session, action, self.payload(category, service, mid, variant))
-        got = extract_as_on(html)
-        if got != month_end(mid):
-            raise RuntimeError(f"APMI returned data as on {got} instead of {month_end(mid)}")
-        return html
+    def fetch(self, category, service_code, mid):
+        action, style, date_fmt, method = self.locked
+        r = self.call(action, self.payload(category, service_code, mid, style, date_fmt), method)
+        r.raise_for_status()
+        return self.parse(r.text)
+
+    def diagnostics(self):
+        print(f"\n----- DIAGNOSTICS: {self.kind} -----")
+        print(f"  category field: {self.cat_field}")
+        print(f"  actions found in JavaScript: {self.actions}")
+        print(f"  report actions tried: {self.report_actions()}")
+        print(f"  lists: {[(k, len(v[0]), len(v[1])) for k, v in self.lists.items()]}")
+        for line in self.log[:40]:
+            print("  try:", line)
+        for fn in ("getSynchronousData", "getFormData", "loadEquitydata", "onClickSubmit", "IAbyService", "loadMonthYearCombo"):
+            body = js_function(self.js, fn)
+            if body:
+                print(f"\n  JS {fn}:", re.sub(r"\s+", " ", body)[:3000])
+        print("----- END DIAGNOSTICS -----\n")
 
 
-def fetch(session, url):
-    resp = session.get(url, timeout=60)
-    resp.raise_for_status()
-    return resp.text
+SERVICE_CODES = {"Discretionary": "D", "Non Discretionary": "N"}
 
 
-def diagnose(html, label, form=None):
-    """Print what's on the page (and the submit JavaScript) so the form can be matched precisely."""
-    if label in _diagnosed:
-        return
-    _diagnosed.add(label)
-    soup = BeautifulSoup(html, "lxml")
-    print(f"\n----- DIAGNOSTICS: {label} -----")
-    for i, f in enumerate(soup.find_all("form")):
-        print(f"form #{i}: action={f.get('action')!r} method={f.get('method')!r} name={f.get('name')!r}")
-    for el in soup.find_all(["select", "input"])[:40]:
-        if el.name == "select":
-            opts = [(o.get("value"), o.get_text(strip=True)) for o in el.find_all("option")][:4]
-            print(f"  select name={el.get('name')!r} onchange={str(el.get('onchange'))[:90]!r} options={opts}")
-        else:
-            print(f"  input type={el.get('type')!r} name={el.get('name')!r} value={str(el.get('value'))[:30]!r} onchange={str(el.get('onchange'))[:60]!r}")
-    print("  scripts:", [s.get("src") for s in soup.find_all("script", src=True)])
-    if form is not None:
-        print(f"  form actions tried: {form.actions()}")
-        for fn in ("onClickSubmit", "PerformanceMonth", "onChangeMonth", "strategytype", "getSelectedData"):
-            body = form.js_function(fn)
-            print(f"\n  JS {fn}:", re.sub(r"\s+", " ", body)[:2500] if body else "(not found)")
-    print("----- END DIAGNOSTICS -----\n")
-
-
-def scrape_month(session, perf_form, turn_form, mid):
+def scrape_month(perf, turn, mid, reference=None):
     frames, failures, seen = [], [], {}
     for category in CATEGORIES:
         for service in SERVICES:
+            code = SERVICE_CODES[service]
             label = f"{mid} {category} / {service}"
             try:
-                perf = parse_performance(perf_form.fetch_report(session, category, service, mid))
-                turn = parse_turnover(turn_form.fetch_report(session, category, service, mid))
-                if perf is None and turn is None:
+                p = perf.fetch(category, code, mid)
+                t = turn.fetch(category, code, mid) if turn.locked else None
+                if (p is None or not len(p)) and (t is None or not len(t)):
                     print(f"  {label}: no strategies listed")
                     continue
-                names = frozenset(ia_names(perf if perf is not None else turn))
+                names = frozenset(ia_names(p if p is not None else t))
                 if names and names in seen:
                     raise RuntimeError(f"same list as {seen[names]}; APMI ignored the filter")
                 seen[names] = f"{category} / {service}"
-                combined = merge(perf, turn)
+                if reference is not None and p is not None and len(p):
+                    ref = reference.get((category, service))
+                    sig = round(float(pd.to_numeric(p.get("Return 1M (%)"), errors="coerce").fillna(0).sum()), 4)
+                    if ref is not None and sig == ref:
+                        raise RuntimeError("identical to the latest month; APMI ignored the date")
+                combined = merge(p, t)
                 combined.insert(0, "Service Type", service)
                 combined.insert(0, "Category", category)
                 frames.append(combined)
@@ -423,10 +371,15 @@ def scrape_month(session, perf_form, turn_form, mid):
             except Exception as e:
                 failures.append(f"{category} / {service}")
                 print(f"  {label}: FAILED ({e})")
-                if not frames and category == "Equity" and service == SERVICES[0] and "as on None" in str(e):
-                    print(f"  {mid}: APMI has no data for this month")
-                    return [], ["no data"]
     return frames, failures
+
+
+def signature(frames):
+    out = {}
+    for f in frames:
+        key = (f["Category"].iloc[0], f["Service Type"].iloc[0])
+        out[key] = round(float(pd.to_numeric(f.get("Return 1M (%)"), errors="coerce").fillna(0).sum()), 4)
+    return out
 
 
 # ================================================================ merge + save
@@ -486,12 +439,17 @@ def history_is_complete(site, mid):
 
 
 # ================================================================ main
+def fetch(session, url):
+    resp = session.get(url, timeout=60)
+    resp.raise_for_status()
+    return resp.text
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--site", default="docs", help="website folder to write into")
     ap.add_argument("--backfill", type=int, default=24, help="max older months to add this run (0 = none)")
-    ap.add_argument("--earliest", default="2019-01", help="don't go back before this month (YYYY-MM)")
-    ap.add_argument("--inspect", action="store_true")
+    ap.add_argument("--earliest", default="2023-04", help="don't go back before this month (YYYY-MM)")
     args = ap.parse_args()
 
     session = requests.Session()
@@ -500,45 +458,39 @@ def main():
     time.sleep(DELAY_SECONDS)
     turn_default = fetch(session, TURN_URL)
 
-    if args.inspect:
-        diagnose(perf_default, "IA Performance page", ReportForm(perf_default, PERF_URL, session))
-        diagnose(turn_default, "IA Turnover page", ReportForm(turn_default, TURN_URL, session))
-        return
-
     latest_as_on = extract_as_on(perf_default)
     latest = month_id(latest_as_on)
     print(f"Latest month on APMI: {latest_as_on}")
 
-    perf_form = ReportForm(perf_default, PERF_URL, session)
-    turn_form = ReportForm(turn_default, TURN_URL, session)
-    for label, f in (("Performance", perf_form), ("Turnover", turn_form)):
-        print(f"{label} page: category={f.has('category')} service={f.has('service')} "
-              f"month={f.month_ready()} submit-script-target={f.js_action}")
+    perf = ApmiReport(session, PERF_URL, perf_default, "perf")
+    turn = ApmiReport(session, TURN_URL, turn_default, "turn")
+    print(f"Performance JavaScript actions: {perf.actions}")
+    print(f"Turnover JavaScript actions:    {turn.actions}")
 
-    default_perf = parse_performance(perf_default)
-    equity_names = ia_names(default_perf)
+    print("\nChecking how APMI answers requests:")
+    perf_ok = perf.probe(latest)
+    turn_ok = turn.probe(latest) if perf_ok else False
+    if not perf_ok:
+        perf.diagnostics()
+    if not turn_ok:
+        turn.diagnostics()
 
-    print("\nChecking how APMI's form accepts requests:")
-    forms_ok = (perf_form.has("category") and turn_form.has("category")
-                and perf_form.probe(session, latest, parse_performance, equity_names)
-                and turn_form.probe(session, latest, parse_turnover, ia_names(parse_turnover(turn_default))))
-    if not forms_ok:
-        diagnose(perf_default, "IA Performance page", perf_form)
-        diagnose(turn_default, "IA Turnover page", turn_form)
-
-    # ---------- latest month
     frames, failures = [], []
-    if forms_ok:
+    if perf_ok:
+        if not turn_ok:
+            print("Turnover requests aren't working yet; returns and AUM will be saved without turnover.")
         print(f"\nLatest month {latest}:")
-        frames, failures = scrape_month(session, perf_form, turn_form, latest)
+        frames, failures = scrape_month(perf, turn, latest)
     if not frames:
         print("Category requests aren't working yet; saving APMI's default Equity view so the site still updates.")
-        data = merge(default_perf, parse_turnover(turn_default))
+        data = merge(parse_performance(perf_default), parse_turnover(turn_default))
         data.insert(0, "Service Type", "Default view")
         data.insert(0, "Category", "Equity")
         failures = ["default-only"]
     else:
         data = pd.concat(frames, ignore_index=True)
+        if not turn_ok:
+            failures.append("turnover")
     data.insert(0, "As On", latest_as_on)
 
     payload = month_payload(data, latest_as_on, failures)
@@ -550,24 +502,26 @@ def main():
         xl.sheets["Latest month"].auto_filter.ref = xl.sheets["Latest month"].dimensions
     print(f"Saved latest month: {len(data)} strategies")
 
-    # ---------- older months
-    if forms_ok and frames and args.backfill > 0:
+    if frames and args.backfill > 0:
+        ref = signature(frames)
         done, empty_streak, mid = 0, 0, prev_month(latest)
         while mid >= args.earliest and done < args.backfill:
             if not history_is_complete(args.site, mid):
                 print(f"\nHistory {mid}:")
-                f_hist, fail_hist = scrape_month(session, perf_form, turn_form, mid)
+                f_hist, fail_hist = scrape_month(perf, turn, mid, reference=ref)
                 if f_hist:
                     empty_streak = 0
                     hist = pd.concat(f_hist, ignore_index=True)
                     hist.insert(0, "As On", month_end(mid))
+                    if not turn_ok:
+                        fail_hist.append("turnover")
                     write_json(os.path.join(args.site, "history", f"{mid}.json"), month_payload(hist, month_end(mid), fail_hist))
                     done += 1
                     print(f"  saved {mid}: {len(hist)} strategies")
                 else:
                     empty_streak += 1
-                    if empty_streak >= 3:
-                        print("  Three months in a row with no data; assuming APMI's history ends here.")
+                    if empty_streak >= 2:
+                        print("  No data for two months in a row; stopping history here.")
                         break
             mid = prev_month(mid)
     elif args.backfill > 0:
