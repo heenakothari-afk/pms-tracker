@@ -423,7 +423,10 @@ function useData(d) {
   const failed = (d.failed || []).length;
   const cats = new Set(state.rows.map(r => r._cat));
   $("notice").hidden = !failed;
-  $("notice").textContent = failed ? `Some categories couldn't be collected for this month (${[...new Set(d.failed.map(f => f.split(" / ")[0]))].join(", ")}), so they may be missing or incomplete.` : "";
+  const defaultOnly = (d.failed || []).includes("default-only") || state.rows.some(r => r["Service Type"] === "Default view");
+  $("notice").textContent = defaultOnly
+    ? "Only APMI's default Equity list could be collected for this month. Debt, Hybrid and Multi Asset will appear once the scraper can request them."
+    : failed ? `Some parts of this month couldn't be collected (${d.failed.join(", ")}), so a few strategies may be missing.` : "";
   if (!cats.has(state.tab) && state.tab !== "mine") state.tab = CATEGORIES.find(c => cats.has(c)) || "Equity";
   state.shown = PAGE;
   renderTabs(); renderAll();
