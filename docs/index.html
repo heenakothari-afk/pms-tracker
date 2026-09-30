@@ -5,6 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>PMS Tracker: returns, AUM and turnover</title>
 <meta name="description" content="Compare every Portfolio Management Service strategy reported to APMI by returns, AUM and portfolio turnover.">
+<script>
+  try { const t = localStorage.getItem("pms-tracker-theme"); if (t === "light" || t === "dark") document.documentElement.dataset.theme = t; } catch (e) {}
+</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -16,12 +19,20 @@
     color-scheme: light dark;
   }
   @media (prefers-color-scheme: dark) {
-    :root {
+    :root:not([data-theme="light"]) {
       --paper: #12181E; --surface: #182029; --ink: #E7ECEF; --muted: #97A3AE;
       --faint: #66727D; --rule: #26303A; --band: #1E2731;
       --gain: #4CC38A; --loss: #F07A72; --focus: #8FA8F0;
+      color-scheme: dark;
     }
   }
+  :root[data-theme="dark"] {
+    --paper: #12181E; --surface: #182029; --ink: #E7ECEF; --muted: #97A3AE;
+      --faint: #66727D; --rule: #26303A; --band: #1E2731;
+      --gain: #4CC38A; --loss: #F07A72; --focus: #8FA8F0;
+    color-scheme: dark;
+  }
+  :root[data-theme="light"] { color-scheme: light; }
   * { box-sizing: border-box; }
   html, body { margin: 0; }
   body {
@@ -33,6 +44,10 @@
 
   header { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: end; gap: 12px 32px; }
   h1 { font-size: clamp(26px, 3.4vw, 38px); line-height: 1.1; letter-spacing: -0.02em; margin: 0; font-weight: 700; }
+  .head-right { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+  .theme { display: inline-flex; border: 1px solid var(--rule); border-radius: 999px; padding: 2px; background: var(--surface); }
+  .theme button { font: inherit; font-size: 13px; line-height: 1; border: 0; background: none; color: var(--muted); padding: 7px 10px; border-radius: 999px; cursor: pointer; min-width: 34px; }
+  .theme button[aria-pressed=true] { background: var(--ink); color: var(--paper); }
   .as-on { display: flex; align-items: center; gap: 8px; font-size: 13.5px; color: var(--muted); }
   .as-on select { font-weight: 600; }
   .notice { font-size: 13.5px; color: var(--muted); margin: 10px 0 0; }
@@ -64,15 +79,15 @@
 
   .table-scroll { overflow-x: auto; background: var(--surface); border: 1px solid var(--rule); border-radius: 0 0 10px 10px; }
   table { border-collapse: separate; border-spacing: 0; width: 100%; }
-  th, td { padding: 11px 12px; text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  th, td { padding: 11px 12px; text-align: center; white-space: nowrap; font-variant-numeric: tabular-nums; }
   tbody td { border-top: 1px solid var(--rule); }
   thead th { font-size: 12.5px; font-weight: 500; color: var(--muted); cursor: pointer; user-select: none; background: var(--surface); position: sticky; top: 0; z-index: 2; border-bottom: 1px solid var(--rule); }
   thead th:hover { color: var(--ink); }
   thead th[aria-sort] { color: var(--ink); font-weight: 600; }
   thead th[aria-sort=descending]::after { content: " ↓"; }
   thead th[aria-sort=ascending]::after { content: " ↑"; }
-  th.rank, td.rank { width: 44px; text-align: right; color: var(--faint); padding-right: 4px; font-size: 13px; }
-  th.name, td.name { text-align: left; white-space: normal; min-width: 300px; position: sticky; left: 0; background: var(--surface); z-index: 1; }
+  th.rank, td.rank { width: 44px; text-align: center; color: var(--faint); font-size: 13px; }
+  th.name, td.name { text-align: left; font-variant-numeric: normal; white-space: normal; min-width: 300px; position: sticky; left: 0; background: var(--surface); z-index: 1; }
   thead th.name { z-index: 3; }
   td.name .n { display: block; font-weight: 600; line-height: 1.3; }
   td.name .p { display: block; font-size: 12.5px; color: var(--muted); line-height: 1.3; margin-top: 2px; }
@@ -107,7 +122,7 @@
   .col-panel label { display: flex; gap: 8px; align-items: center; font-size: 14px; padding: 3px 0; cursor: pointer; }
   .col-panel .row { display: flex; justify-content: space-between; border-top: 1px solid var(--rule); padding-top: 10px; }
   .col-panel .row button { font: inherit; font-size: 13px; background: none; border: 0; color: var(--ink); text-decoration: underline; cursor: pointer; padding: 0; }
-  td.tag { text-align: left; color: var(--muted); font-size: 13px; }
+  td.tag { color: var(--muted); font-size: 13px; }
   .missing { margin-top: 14px; font-size: 13.5px; color: var(--muted); background: var(--surface); border: 1px solid var(--rule); border-radius: 8px; padding: 12px 14px; }
   .missing[hidden] { display: none; }
   .missing ul { margin: 6px 0 0; padding-left: 18px; }
@@ -125,9 +140,16 @@
 <div class="wrap">
   <header>
     <h1>PMS Tracker</h1>
+    <div class="head-right">
+    <div class="theme" role="group" aria-label="Colour theme">
+      <button type="button" data-theme-choice="light" aria-label="Light mode" title="Light mode">☀︎</button>
+      <button type="button" data-theme-choice="auto" aria-label="Match my device" title="Match my device">Auto</button>
+      <button type="button" data-theme-choice="dark" aria-label="Dark mode" title="Dark mode">☾</button>
+    </div>
     <div class="as-on">
       <label for="month">As on</label>
       <select id="month" disabled><option>Loading…</option></select>
+    </div>
     </div>
   </header>
 
@@ -390,6 +412,16 @@ function downloadCsv() {
   a.download = `pms_tracker_${state.tab === "mine" ? "my_funds" : state.tab.toLowerCase().replace(/\s+/g, "_")}_${(state.asOn || "").replace(/\//g, "-")}.csv`;
   a.click();
 }
+
+// ---------- light / dark mode
+function setTheme(choice) {
+  if (choice === "light" || choice === "dark") document.documentElement.dataset.theme = choice;
+  else delete document.documentElement.dataset.theme;
+  try { choice === "auto" ? localStorage.removeItem("pms-tracker-theme") : localStorage.setItem("pms-tracker-theme", choice); } catch (e) {}
+  document.querySelectorAll("[data-theme-choice]").forEach(b => b.setAttribute("aria-pressed", b.dataset.themeChoice === choice));
+}
+document.querySelectorAll("[data-theme-choice]").forEach(b => b.addEventListener("click", () => setTheme(b.dataset.themeChoice)));
+setTheme(document.documentElement.dataset.theme || "auto");
 
 // ---------- wiring
 renderColumnPanel();
