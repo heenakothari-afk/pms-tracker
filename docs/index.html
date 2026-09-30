@@ -33,8 +33,10 @@
 
   header { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: end; gap: 12px 32px; }
   h1 { font-size: clamp(26px, 3.4vw, 38px); line-height: 1.1; letter-spacing: -0.02em; margin: 0; font-weight: 700; }
-  .stamp { font-size: 13px; color: var(--muted); margin: 0; }
-  .stamp strong { color: var(--ink); font-weight: 600; }
+  .as-on { display: flex; align-items: center; gap: 8px; font-size: 13.5px; color: var(--muted); }
+  .as-on select { font-weight: 600; }
+  .notice { font-size: 13.5px; color: var(--muted); margin: 10px 0 0; }
+  .notice[hidden] { display: none; }
 
   .controls {
     display: flex; flex-wrap: wrap; gap: 12px; align-items: center;
@@ -123,9 +125,13 @@
 <div class="wrap">
   <header>
     <h1>PMS Tracker</h1>
-    <p class="stamp" id="stamp">Loading data…</p>
+    <div class="as-on">
+      <label for="month">As on</label>
+      <select id="month" disabled><option>Loading…</option></select>
+    </div>
   </header>
 
+  <p class="notice" id="notice" hidden></p>
   <div class="tabs" id="tabs" role="tablist" aria-label="Category"></div>
   <div class="controls">
     <input type="search" id="q" placeholder="Search a fund manager or strategy" aria-label="Search">
@@ -400,10 +406,11 @@ $("svc").addEventListener("change", e => { state.svc = e.target.value; state.sho
 $("more").addEventListener("click", () => { state.shown += PAGE; render(); });
 $("dl").addEventListener("click", downloadCsv);
 
-Promise.all([
-  fetch("data.json", { cache: "no-cache" }).then(r => { if (!r.ok) throw new Error(r.status); return r.json(); }),
-  fetch("watchlist.csv", { cache: "no-cache" }).then(r => r.ok ? r.text() : "").catch(() => ""),
-]).then(([d, watchText]) => {
+function monthLabel(asOn) {
+  const [d, m, y] = String(asOn).split("/");
+  return new Date(+y, +m - 1, +d).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
+}
+function useData(d) {
   state.asOn = d.as_on;
   state.rows = (d.rows || []).map(r => ({
     ...r,
@@ -412,12 +419,47 @@ Promise.all([
     _provider: tidyProvider(r["Provider"]),
     _search: `${r["Provider"]} ${r["Investment Approach"]}`.toLowerCase(),
   }));
-  state.watch = loadWatchlist(watchText);
   applyWatchlist();
-  if (location.hash === "#my-funds" && state.watch.length) state.tab = "mine";
-  $("stamp").innerHTML = `Data as on <strong>${esc(d.as_on)}</strong>. Source: APMI.`;
+  const failed = (d.failed || []).length;
+  const cats = new Set(state.rows.map(r => r._cat));
+  $("notice").hidden = !failed;
+  $("notice").textContent = failed ? `Some categories couldn't be collected for this month (${[...new Set(d.failed.map(f => f.split(" / ")[0]))].join(", ")}), so they may be missing or incomplete.` : "";
+  if (!cats.has(state.tab) && state.tab !== "mine") state.tab = CATEGORIES.find(c => cats.has(c)) || "Equity";
+  state.shown = PAGE;
   renderTabs(); renderAll();
-}).catch(() => { $("stamp").textContent = "The data couldn't be loaded. Check that data.json is in the same folder as this page."; });
+}
+function loadMonth(id) {
+  const url = id ? `history/${id}.json` : "data.json";
+  $("month").disabled = true;
+  return fetch(url, { cache: "no-cache" })
+    .then(r => { if (!r.ok) throw new Error(r.status); return r.json(); })
+    .then(d => {
+      useData(d);
+      const u = new URL(location.href);
+      id && id !== state.latest ? u.searchParams.set("month", id) : u.searchParams.delete("month");
+      history.replaceState(null, "", u);
+    })
+    .catch(() => { $("notice").hidden = false; $("notice").textContent = "That month's data couldn't be loaded. Try another month or refresh the page."; })
+    .finally(() => { $("month").disabled = !state.months.length; });
+}
+
+state.months = [];
+Promise.all([
+  fetch("months.json", { cache: "no-cache" }).then(r => r.ok ? r.json() : null).catch(() => null),
+  fetch("watchlist.csv", { cache: "no-cache" }).then(r => r.ok ? r.text() : "").catch(() => ""),
+]).then(([idx, watchText]) => {
+  state.watch = loadWatchlist(watchText);
+  if (location.hash === "#my-funds" && state.watch.length) state.tab = "mine";
+  state.months = (idx && idx.months) || [];
+  state.latest = idx && idx.latest;
+  const wanted = new URLSearchParams(location.search).get("month");
+  const start = state.months.some(m => m.id === wanted) ? wanted : state.latest;
+  $("month").innerHTML = state.months.length
+    ? state.months.map(m => `<option value="${esc(m.id)}"${m.id === start ? " selected" : ""}>${esc(monthLabel(m.as_on))}</option>`).join("")
+    : `<option>Latest</option>`;
+  $("month").addEventListener("change", e => loadMonth(e.target.value));
+  return loadMonth(state.months.length ? start : null);
+}).catch(() => { $("notice").hidden = false; $("notice").textContent = "The data couldn't be loaded. Check that data.json is in the same folder as this page."; });
 </script>
 </body>
 </html>
