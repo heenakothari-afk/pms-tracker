@@ -185,9 +185,13 @@ def js_actions(js):
     return list(dict.fromkeys(re.findall(r"""["']([A-Za-z]+\.htm\?action=[A-Za-z0-9_]+)""", js)))
 
 
-def options_in(html):
+def options_in(html, name=None, prefer_selected=True):
     soup = BeautifulSoup(html or "", "lxml")
-    return [o.get("value") for o in soup.find_all("option") if o.get("value") not in (None, "", "0", "-1")]
+    scope = soup.find("select", attrs={"name": name}) if name else soup
+    scope = scope or soup
+    opts = [o for o in scope.find_all("option") if o.get("value") not in (None, "", "0", "-1")]
+    chosen = [o for o in opts if o.has_attr("selected")]
+    return [o.get("value") for o in (chosen if (prefer_selected and chosen) else opts)]
 
 
 def parse_rows_fallback(html, ncols, colnames):
@@ -230,6 +234,9 @@ class ApmiReport:
         radio_names = {i.get("name") for i in soup.find_all("input", attrs={"type": "radio"})}
         self.cat_field = next((n for n in radio_names if n and re.search(r"str[ae]t[ae]gy", n, re.I)), "strategyname")
         self.default_names = ia_names(self.parse(html))
+        self.default_html = html
+        self.samples = []
+        self.report_action = None
         self.lists = {}
         self.locked = None
         self.log = []
@@ -249,78 +256,98 @@ class ApmiReport:
         return r
 
     def report_actions(self):
-        acts = [a for a in self.actions if not re.search(r"loadPms|loadIaname|getIa|IaUsing|IabyPMS|Page$|PMSmenu", a)
-                and not re.search(r"benchmark|chart|insight", a, re.I)]
-        preferred = [a for a in acts if re.search(r"report|data|turnover", a, re.I)]
+        acts = [x for x in self.actions if not re.search(r"loadpms|loadianame|getia|iausing|iabypms|page$|pmsmenu|benchmark|chart|insight|excel|download", x, re.I)]
+        preferred = [x for x in acts if re.search(r"report|data", x, re.I)]
         return list(dict.fromkeys(preferred + acts))
 
+    def page_lists(self):
+        """Provider / strategy IDs as they appear on the loaded (Equity) page."""
+        return (options_in(self.default_html, "pmsProvideName"), options_in(self.default_html, "pmsInvAprochName"))
+
     def ia_lists(self, category, service):
-        """Provider and investment-approach IDs for a category, like the page loads them."""
+        """Provider and investment-approach IDs for a category, fetched the way the page does."""
         key = (category, service)
         if key in self.lists:
             return self.lists[key]
         providers, ias = [], []
-        pms_action = next((a for a in self.actions if re.search(r"loadPms", a)), None)
-        ia_action = next((a for a in self.actions if re.search(r"loadIaname|getIa|IaUsing|IabyPMS", a)), None)
-        base = {"strategyname": category, "stretegyname": category, "service": service, "servicetype": service}
+        pms_action = next((x for x in self.actions if re.search(r"loadpms", x, re.I)), None)
+        ia_action = next((x for x in self.actions if re.search(r"loadianame|getia|iausing|iabypms", x, re.I)), None)
+        page_prov = ",".join(self.page_lists()[0])
         try:
             if pms_action:
-                providers = options_in(self.call(pms_action, dict(base, pmsProviderName="")).text)
+                r = self.call(pms_action, {"strategyname": category, "pmsProviderName": page_prov, "service": service})
+                providers = options_in(r.text)
+                self.samples.append(f"{pms_action} [{category}/{service}] -> {len(providers)} ids | {re.sub(r'\s+', ' ', r.text)[:200]}")
             if ia_action:
-                ias = options_in(self.call(ia_action, dict(base, pmsProviderName=",".join(providers), pmsProvideName=",".join(providers))).text)
+                joined = ",".join(providers)
+                r = self.call(ia_action, {"strategyname": category, "pmsProvideName": joined, "pmsProviderName": joined, "service": service})
+                ias = options_in(r.text)
+                self.samples.append(f"{ia_action} [{category}/{service}] -> {len(ias)} ids | {re.sub(r'\s+', ' ', r.text)[:200]}")
         except requests.RequestException as e:
             self.log.append(f"list lookup failed: {e}")
         self.lists[key] = (providers, ias)
         return providers, ias
 
-    def payload(self, category, service, mid, style, date_fmt):
+    def payload(self, category, service, mid, cfg):
         y, m = mid.split("-")
-        providers, ias = self.ia_lists(category, service)
-        data = {self.cat_field: category, "servicetype": service,
-                "fromMonth": str(int(m)), "fromYears": y, "asOnDate": date_formats(mid)[date_fmt]}
-        if self.kind == "perf":
-            data["SelectedBenchmark"] = "22"
-        if style == "joined":
-            data["pmsProvideName"], data["pmsInvAprochName"] = ",".join(providers), ",".join(ias)
-        elif style == "repeated":
-            data["pmsProvideName"], data["pmsInvAprochName"] = providers, ias
-        elif style == "empty":
-            data["pmsProvideName"], data["pmsInvAprochName"] = "", ""
-        return data
+        providers, ias = self.page_lists() if cfg["ids"] == "page" else self.ia_lists(category, service)
+        fields = [(self.cat_field, category), ("servicetype", service)]
+        if cfg["style"] == "joined":
+            fields += [("pmsProvideName", ",".join(providers)), ("pmsInvAprochName", ",".join(ias))]
+        else:
+            fields += [("pmsProvideName", v) for v in providers] + [("pmsInvAprochName", v) for v in ias]
+        fields += [("fromMonth", str(int(m))), ("fromYears", y), ("asOnDate", date_formats(mid)[cfg.get("date", 0)])]
+        return fields
 
-    def attempts(self):
-        styles = ["joined", "repeated", "empty", "omit"]
-        for action in self.report_actions():
-            for style in styles:
-                for date_fmt in range(3):
-                    for method in ("post", "get"):
-                        yield action, style, date_fmt, method
+    def run(self, category, service, mid, cfg):
+        if cfg.get("bench_first"):
+            bench = next((x for x in self.actions if re.search(r"benchmark", x, re.I)), None)
+            if bench:
+                self.call(bench, "")
+        return self.call(self.report_action, self.payload(category, service, mid, cfg))
+
+    def experiments(self):
+        cfgs = []
+        for bench in (False, True):
+            for ids, cats in (("page", ["Equity"]), ("lists", ["Equity", "Debt"])):
+                for style in ("repeated", "joined"):
+                    for cat in cats:
+                        cfgs.append((cat, {"ids": ids, "style": style, "bench_first": bench, "date": 0}))
+        cfgs.append(("Equity", {"ids": "page", "style": "repeated", "bench_first": False, "date": 1}))
+        return cfgs
 
     def probe(self, mid):
-        tried = 0
-        for action, style, date_fmt, method in self.attempts():
-            tried += 1
-            if tried > 60:
-                break
+        acts = self.report_actions()
+        if not acts:
+            print(f"    {self.kind}: no report address found in APMI's JavaScript")
+            return False
+        self.report_action = acts[0]
+        pp, pi = self.page_lists()
+        print(f"    {self.kind}: report address {self.report_action}; page lists {len(pp)} providers, {len(pi)} strategies")
+        working_equity = None
+        for cat, cfg in self.experiments():
             try:
-                r = self.call(action, self.payload("Debt", "D", mid, style, date_fmt), method)
+                r = self.run(cat, "D", mid, cfg)
             except requests.RequestException as e:
-                self.log.append(f"{action} {style} date#{date_fmt} {method}: error {e}")
+                self.log.append(f"{cat} {cfg}: error {e}")
                 continue
             df = self.parse(r.text) if r.ok else None
-            names = ia_names(df)
-            snippet = re.sub(r"\s+", " ", BeautifulSoup(r.text, "lxml").get_text(" "))[:160]
-            self.log.append(f"{action} {style} date#{date_fmt} {method}: HTTP {r.status_code}, rows={0 if df is None else len(df)} | {snippet}")
-            if r.ok and df is not None and len(df) and names != self.default_names:
-                self.locked = (action, style, date_fmt, method)
-                print(f"    {self.kind} probe OK: {action} ({style}, date {date_formats(mid)[date_fmt]}, {method.upper()})")
+            n = 0 if df is None else len(df)
+            text = re.sub(r"\s+", " ", BeautifulSoup(r.text, "lxml").get_text(" "))
+            self.log.append(f"{cat} {cfg}: HTTP {r.status_code}, {len(r.text)} bytes, rows={n} | {text[:120]} ... {text[-80:]}")
+            if n and cat == "Equity" and working_equity is None:
+                working_equity = cfg
+            if n and cat == "Debt" and ia_names(df) != self.default_names:
+                self.locked = cfg
+                print(f"    {self.kind} probe OK: {cfg}")
                 return True
-        print(f"    {self.kind} probe failed after {tried} attempts")
+        if working_equity:
+            print(f"    {self.kind}: Equity works with {working_equity}, but Debt returned nothing")
+        print(f"    {self.kind} probe failed")
         return False
 
     def fetch(self, category, service_code, mid):
-        action, style, date_fmt, method = self.locked
-        r = self.call(action, self.payload(category, service_code, mid, style, date_fmt), method)
+        r = self.run(category, service_code, mid, self.locked)
         r.raise_for_status()
         return self.parse(r.text)
 
@@ -330,12 +357,23 @@ class ApmiReport:
         print(f"  actions found in JavaScript: {self.actions}")
         print(f"  report actions tried: {self.report_actions()}")
         print(f"  lists: {[(k, len(v[0]), len(v[1])) for k, v in self.lists.items()]}")
-        for line in self.log[:40]:
+        soup = BeautifulSoup(self.default_html, "lxml")
+        for nm in ("pmsProvideName", "pmsInvAprochName"):
+            sel = soup.find("select", attrs={"name": nm})
+            if sel:
+                opts = sel.find_all("option")
+                print(f"  page select {nm}: multiple={sel.has_attr('multiple')} options={len(opts)} selected={sum(o.has_attr('selected') for o in opts)} parent-form={bool(sel.find_parent('form'))}")
+        form = soup.find("form")
+        if form:
+            print("  named fields inside the form:", sorted({e.get('name') for e in form.find_all(['input', 'select', 'textarea']) if e.get('name')}))
+        for line in self.samples[:6]:
+            print("  list:", line)
+        for line in self.log[:30]:
             print("  try:", line)
-        for fn in ("getSynchronousData", "getFormData", "loadEquitydata", "onClickSubmit", "IAbyService", "loadMonthYearCombo"):
+        for fn in ("getalldata", "getFormData", "onClickofSubmit", "onClickSubmit", "loadEquitydata", "strategytype", "IAbyService", "getIabyPMS", "getIaUsingPMS"):
             body = js_function(self.js, fn)
             if body:
-                print(f"\n  JS {fn}:", re.sub(r"\s+", " ", body)[:3000])
+                print(f"\n  JS {fn}:", re.sub(r"\s+", " ", body)[:2500])
         print("----- END DIAGNOSTICS -----\n")
 
 
@@ -469,7 +507,7 @@ def main():
 
     print("\nChecking how APMI answers requests:")
     perf_ok = perf.probe(latest)
-    turn_ok = turn.probe(latest) if perf_ok else False
+    turn_ok = turn.probe(latest)
     if not perf_ok:
         perf.diagnostics()
     if not turn_ok:
