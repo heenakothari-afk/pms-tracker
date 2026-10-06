@@ -86,6 +86,32 @@
   th.name, td.name { text-align: left; font-variant-numeric: normal; white-space: normal; min-width: 300px; position: sticky; left: 0; background: var(--surface); z-index: 1; }
   thead th.name { z-index: 3; }
   td.name .n { display: block; font-weight: 600; line-height: 1.3; }
+  th.pick, td.pick { width: 40px; padding-left: 10px; padding-right: 0; }
+  .pick-btn { font: inherit; font-size: 16px; line-height: 1; width: 28px; height: 28px; border-radius: 50%; border: 1px solid var(--rule); background: var(--surface); color: var(--muted); cursor: pointer; display: inline-grid; place-items: center; }
+  .pick-btn:hover { border-color: var(--ink); color: var(--ink); }
+  .pick-btn[aria-pressed=true] { background: var(--ink); border-color: var(--ink); color: var(--paper); }
+  tr.picked td { background: var(--band); }
+  .compare-bar { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(16px + env(safe-area-inset-bottom, 0px)); z-index: 20; display: flex; align-items: center; gap: 14px; background: var(--ink); color: var(--paper); padding: 10px 12px 10px 18px; border-radius: 999px; box-shadow: 0 10px 30px rgba(0,0,0,.25); font-size: 14px; max-width: calc(100vw - 24px); }
+  .compare-bar[hidden] { display: none; }
+  .compare-bar button { font: inherit; font-size: 14px; border-radius: 999px; cursor: pointer; padding: 7px 14px; }
+  .compare-bar .go { background: var(--paper); color: var(--ink); border: 0; font-weight: 600; }
+  .compare-bar .clear { background: none; color: var(--paper); border: 1px solid color-mix(in srgb, var(--paper) 40%, transparent); }
+  .wrap { padding-bottom: 96px; }
+  dialog.compare { width: min(1180px, calc(100vw - 24px)); }
+  .cmp-table th, .cmp-table td { padding: 9px 12px; }
+  .cmp-table td { border-top: 1px solid var(--rule); }
+  .cmp-table th { position: static; cursor: default; vertical-align: top; white-space: normal; min-width: 150px; }
+  .cmp-table th.metric, .cmp-table td.metric { text-align: left; position: sticky; left: 0; background: var(--surface); color: var(--muted); font-weight: 500; min-width: 130px; }
+  .cmp-table .fund-col { color: var(--ink); font-weight: 600; font-size: 13.5px; line-height: 1.3; }
+  .cmp-table .fund-col small { display: block; color: var(--muted); font-weight: 400; margin-top: 2px; }
+  .cmp-table .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: 1px; }
+  .cmp-table .remove { font: inherit; font-size: 12px; background: none; border: 0; color: var(--muted); text-decoration: underline; cursor: pointer; padding: 4px 0 0; display: block; margin: 0 auto; }
+  .cmp-table td.best { font-weight: 700; background: var(--band); }
+  .cmp-section { margin: 26px 0 10px; font-size: 15px; }
+  .cmp-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 12.5px; color: var(--muted); margin: 4px 0 12px; }
+  :root { --c1: #2F6FDE; --c2: #D9622B; --c3: #1F9D74; --c4: #A23FC0; --c5: #C9A227; --c6: #D1407A; --c7: #2BA3B8; --c8: #6B7380; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --c1: #6E9CF0; --c2: #F08A55; --c3: #4CC39A; --c4: #C277DB; --c5: #E2C15A; --c6: #EC79A4; --c7: #5FC6D6; --c8: #A3ABB5; } }
+  :root[data-theme="dark"] { --c1: #6E9CF0; --c2: #F08A55; --c3: #4CC39A; --c4: #C277DB; --c5: #E2C15A; --c6: #EC79A4; --c7: #5FC6D6; --c8: #A3ABB5; }
   .fund-link { all: unset; cursor: pointer; display: block; }
   .fund-link:hover .n { text-decoration: underline; text-underline-offset: 3px; }
   .fund-link:focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; border-radius: 3px; }
@@ -192,6 +218,18 @@
   <button class="more" id="more" hidden>Show 50 more</button>
   <div class="missing" id="missing" hidden></div>
 
+  <div class="compare-bar" id="cmpBar" hidden>
+    <span id="cmpCount"></span>
+    <button type="button" class="go" id="cmpGo">Compare</button>
+    <button type="button" class="clear" id="cmpClear">Clear</button>
+  </div>
+  <dialog class="fund compare" id="cmp" aria-labelledby="cmpTitle">
+    <div class="fund-head">
+      <div><h2 id="cmpTitle">Compare funds</h2><p id="cmpSub"></p></div>
+      <button type="button" class="fund-close" id="cmpClose" aria-label="Close">×</button>
+    </div>
+    <div class="fund-body" id="cmpBody"></div>
+  </dialog>
   <dialog class="fund" id="fund" aria-labelledby="fundTitle">
     <div class="fund-head">
       <div><h2 id="fundTitle"></h2><p id="fundSub"></p></div>
@@ -225,13 +263,20 @@ const COLS = [
 ];
 const CATEGORIES = ["Equity", "Debt", "Hybrid", "Multi Asset"];
 const PAGE = 50;
+const MAX_COMPARE = 8;
+const CMP_KEY = "pms-tracker-compare";
 const STORE_KEY = "pms-tracker-columns";
-const state = { rows: [], tab: "Equity", q: "", minAum: 0, svc: "", sortKey: "Return 1Y (%)", dir: -1, shown: PAGE, visible: loadColumns(), watch: [], watchMissing: [] };
+const state = { rows: [], tab: "Equity", q: "", minAum: 0, svc: "", sortKey: "Return 1Y (%)", dir: -1, shown: PAGE, visible: loadColumns(), watch: [], watchMissing: [], compare: loadCompare() };
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const inr = new Intl.NumberFormat("en-IN", { maximumFractionDigits: 0 });
 const key = s => String(s ?? "").toLowerCase().replace(/&/g, "and").replace(/[^a-z0-9]+/g, "");
 
+function loadCompare() {
+  try { const v = JSON.parse(localStorage.getItem("pms-tracker-compare")); if (Array.isArray(v)) return v.slice(0, 8); } catch (e) {}
+  return [];
+}
+function saveCompare() { try { localStorage.setItem(CMP_KEY, JSON.stringify(state.compare)); } catch (e) {} }
 function loadColumns() {
   try { const v = JSON.parse(localStorage.getItem(STORE_KEY)); if (Array.isArray(v) && v.length) return new Set(v); } catch (e) {}
   return new Set(COLS.filter(c => c.on).map(c => c.key));
@@ -285,22 +330,26 @@ function loadWatchlist(text) {
   const rows = parseCsv(text);
   if (!rows.length) return [];
   const head = rows[0].map(h => h.trim().toLowerCase());
+  const li = head.findIndex(h => /^(list|group|watchlist|basket)$/.test(h));
   const si = head.findIndex(h => /strategy|approach|fund|scheme/.test(h));
   const pi = head.findIndex(h => /provider|manager|amc|house/.test(h));
   const body = si >= 0 ? rows.slice(1) : rows;
   return body.map(r => ({
+    list: (li >= 0 ? (r[li] || "").trim() : "") || "My funds",
     strategy: (r[si >= 0 ? si : 0] || "").trim(),
     provider: pi >= 0 ? (r[pi] || "").trim() : "",
-  })).filter(w => w.strategy);
+  }));
 }
+const listNames = () => [...new Set(state.watch.map(w => w.list))];   // includes lists with no funds yet
+const isList = tab => tab.startsWith("list:");
 function applyWatchlist() {
-  const missing = [];
-  state.rows.forEach(r => r._mine = false);
-  for (const w of state.watch) {
+  const missing = {};
+  state.rows.forEach(r => r._lists = new Set());
+  for (const w of state.watch.filter(w => w.strategy)) {
     const sk = key(w.strategy), pk = key(tidyProvider(w.provider));
     const hits = state.rows.filter(r => key(r["Investment Approach"]) === sk && (!pk || key(r._provider).includes(pk) || pk.includes(key(r._provider))));
-    hits.forEach(r => r._mine = true);
-    if (!hits.length) missing.push(w);
+    hits.forEach(r => r._lists.add(w.list));
+    if (!hits.length) (missing[w.list] = missing[w.list] || []).push(w);
   }
   state.watchMissing = missing;
 }
@@ -308,12 +357,18 @@ function applyWatchlist() {
 // ---------- rendering
 function renderTabs() {
   const counts = {}; state.rows.forEach(r => counts[r._cat] = (counts[r._cat] || 0) + 1);
-  const mine = state.rows.filter(r => r._mine).length;
   const tabs = CATEGORIES.map(c => [c, c, counts[c] || 0]);
-  if (state.watch.length) tabs.push(["mine", "My funds", mine]);
-  $("tabs").innerHTML = tabs.map(([id, label, n]) =>
-    `<button role="tab" data-tab="${esc(id)}" class="${id === "mine" ? "mine" : ""}" aria-selected="${state.tab === id}">${esc(label)}<span class="c">${n}</span></button>`).join("");
-  $("tabs").querySelectorAll("button").forEach(b => b.addEventListener("click", () => { state.tab = b.dataset.tab; state.shown = PAGE; renderTabs(); render(); }));
+  listNames().forEach(name => tabs.push(["list:" + name, name, state.rows.filter(r => r._lists.has(name)).length]));
+  let firstList = true;
+  $("tabs").innerHTML = tabs.map(([id, label, n]) => {
+    const cls = isList(id) && firstList ? "mine" : "";
+    if (isList(id)) firstList = false;
+    return `<button role="tab" data-tab="${esc(id)}" class="${cls}" aria-selected="${state.tab === id}">${esc(label)}<span class="c">${n}</span></button>`;
+  }).join("");
+  $("tabs").querySelectorAll("button").forEach(b => b.addEventListener("click", () => {
+    state.tab = b.dataset.tab; state.shown = PAGE; renderTabs(); render();
+    history.replaceState(null, "", location.pathname + location.search + (isList(state.tab) ? "#list=" + encodeURIComponent(state.tab.slice(5)) : ""));
+  }));
 }
 
 function renderColumnPanel() {
@@ -333,7 +388,7 @@ function renderColumnPanel() {
 
 function renderHead() {
   const cols = shownCols();
-  $("head").innerHTML = `<th class="rank" aria-label="Rank">#</th><th class="name" data-key="name">Strategy</th>` +
+  $("head").innerHTML = `<th class="pick" aria-label="Add to comparison"></th><th class="rank" aria-label="Rank">#</th><th class="name" data-key="name">Strategy</th>` +
     cols.map(c => `<th data-key="${esc(c.key)}" class="${c.sep ? "sep" : ""}">${esc(c.label)}</th>`).join("");
   $("head").querySelectorAll("th[data-key]").forEach(th => {
     th.tabIndex = 0;
@@ -350,7 +405,7 @@ function renderHead() {
 function filtered() {
   const q = state.q.trim().toLowerCase();
   const rows = state.rows.filter(r =>
-    (state.tab === "mine" ? r._mine : r._cat === state.tab) &&
+    (isList(state.tab) ? r._lists.has(state.tab.slice(5)) : r._cat === state.tab) &&
     (!state.svc || r["Service Type"] === state.svc) &&
     (!q || r._search.includes(q)) &&
     (state.minAum === 0 || (r["AUM (INR Cr)"] ?? 0) >= state.minAum));
@@ -388,22 +443,22 @@ function render() {
   $("summary").innerHTML = summary + ".";
 
   const page = rows.slice(0, state.shown);
-  const tabName = state.tab === "mine" ? "your list" : state.tab;
+  const tabName = isList(state.tab) ? state.tab.slice(5) : state.tab;
   $("body").innerHTML = page.length ? page.map((r, i) =>
-    `<tr><td class="rank">${i + 1}</td><td class="name"><button type="button" class="fund-link" data-key="${esc(r._key)}"><span class="n">${esc(r._name)}</span><span class="p">${esc(r._provider)}${!state.svc && r["Service Type"] === "Non Discretionary" && !state.visible.has("Service Type") ? ", non-discretionary" : ""}</span></button></td>` +
+    `<tr class="${state.compare.includes(r._key) ? "picked" : ""}"><td class="pick"><button type="button" class="pick-btn" data-key="${esc(r._key)}" aria-pressed="${state.compare.includes(r._key)}" title="${state.compare.includes(r._key) ? "Remove from comparison" : "Add to comparison"}" aria-label="${state.compare.includes(r._key) ? "Remove" : "Add"} ${esc(r._name)} ${state.compare.includes(r._key) ? "from" : "to"} comparison">${state.compare.includes(r._key) ? "✓" : "+"}</button></td><td class="rank">${i + 1}</td><td class="name"><button type="button" class="fund-link" data-key="${esc(r._key)}"><span class="n">${esc(r._name)}</span><span class="p">${esc(r._provider)}${!state.svc && r["Service Type"] === "Non Discretionary" && !state.visible.has("Service Type") ? ", non-discretionary" : ""}</span></button></td>` +
     cols.map(c => {
       const v = r[c.key], txt = fmt(v, c.fmt);
       const cls = [c.sep ? "sep" : "", c.fmt === "text" ? "tag" : "", c.key === state.sortKey ? "active" : "",
         txt === null ? "na" : c.fmt === "pct" ? (v > 0 ? "pos" : v < 0 ? "neg" : "") : ""].join(" ");
       return `<td class="${cls}">${txt ?? "–"}</td>`;
     }).join("") + `</tr>`).join("")
-    : `<tr><td class="empty" colspan="${cols.length + 2}">No strategies in ${esc(tabName)} match these filters. Try a shorter search, a lower minimum AUM or all service types.</td></tr>`;
+    : `<tr><td class="empty" colspan="${cols.length + 3}">${isList(state.tab) && !state.q ? `No funds in ${esc(tabName)} yet. Add them to watchlist.csv with "${esc(tabName)}" in the List column.` : `No strategies in ${esc(tabName)} match your search. Try a shorter search.`}</td></tr>`;
 
   const left = rows.length - page.length;
   $("more").hidden = left <= 0;
   $("more").textContent = `Show ${Math.min(PAGE, left)} more`;
 
-  const miss = state.tab === "mine" ? state.watchMissing : [];
+  const miss = isList(state.tab) ? (state.watchMissing[state.tab.slice(5)] || []) : [];
   $("missing").hidden = !miss.length;
   $("missing").innerHTML = miss.length ? `${miss.length === 1 ? "This fund" : `These ${miss.length} funds`} from your list ${miss.length === 1 ? "wasn't" : "weren't"} found in this month's APMI data. Check the spelling in watchlist.csv matches APMI's strategy name exactly.<ul>` +
     miss.map(w => `<li>${esc(w.strategy)}${w.provider ? ` (${esc(w.provider)})` : ""}</li>`).join("") + `</ul>` : "";
@@ -416,7 +471,7 @@ function downloadCsv() {
     keys.map(k => { const v = r[k] ?? ""; return /[",\n]/.test(v) ? `"${String(v).replace(/"/g, '""')}"` : v; }).join(",")));
   const a = document.createElement("a");
   a.href = URL.createObjectURL(new Blob([lines.join("\n")], { type: "text/csv" }));
-  a.download = `pms_tracker_${state.tab === "mine" ? "my_funds" : state.tab.toLowerCase().replace(/\s+/g, "_")}_${(state.asOn || "").replace(/\//g, "-")}.csv`;
+  a.download = `pms_tracker_${(isList(state.tab) ? state.tab.slice(5) : state.tab).toLowerCase().replace(/[^a-z0-9]+/g, "_")}_${(state.asOn || "").replace(/\//g, "-")}.csv`;
   a.click();
 }
 
@@ -503,9 +558,132 @@ async function openFund(key) {
     a.click();
   });
 }
+window.addEventListener("hashchange", () => {
+  const h = decodeURIComponent(location.hash.slice(1));
+  const name = h.startsWith("list=") ? h.slice(5) : (h === "my-funds" ? listNames()[0] : null);
+  if (name && listNames().includes(name) && state.tab !== "list:" + name) { state.tab = "list:" + name; state.shown = PAGE; renderTabs(); render(); }
+});
 $("body").addEventListener("click", e => { const b = e.target.closest(".fund-link"); if (b) openFund(b.dataset.key); });
 $("fundClose").addEventListener("click", () => $("fund").close());
 $("fund").addEventListener("click", e => { if (e.target === $("fund")) $("fund").close(); });
+
+// ---------- compare
+function updateCompareBar() {
+  const n = state.compare.length;
+  $("cmpBar").hidden = n === 0;
+  $("cmpCount").textContent = n === 1 ? "1 fund picked. Pick at least one more." : `${n} funds picked${n >= MAX_COMPARE ? " (maximum)" : ""}`;
+  $("cmpGo").disabled = n < 2;
+  $("cmpGo").style.opacity = n < 2 ? .5 : 1;
+}
+function togglePick(k) {
+  const i = state.compare.indexOf(k);
+  if (i >= 0) state.compare.splice(i, 1);
+  else if (state.compare.length >= MAX_COMPARE) { alert(`You can compare up to ${MAX_COMPARE} funds at a time. Remove one first.`); return; }
+  else state.compare.push(k);
+  saveCompare(); updateCompareBar(); render();
+}
+function fundLabel(k) {
+  const r = state.rows.find(x => x._key === k);
+  if (r) return { name: r._name, sub: `${r._provider}. ${r._cat}${r["Service Type"] === "Non Discretionary" ? ", non-discretionary" : ""}`, row: r };
+  const [prov, ia, cat] = k.split("|");
+  return { name: tidyName(ia), sub: `${tidyProvider(prov)}. ${cat ? cat.replace(/\b\w/g, c => c.toUpperCase()) : ""} (not reported this month)`, row: null };
+}
+
+function lineChart(months, lines) {
+  const W = 1100, H = 300, padL = 52, padR = 16, padT = 14, padB = 30;
+  const all = lines.flatMap(l => l.vals.filter(v => v !== null));
+  if (!all.length) return "";
+  let lo = Math.min(...all), hi = Math.max(...all);
+  const span = Math.max(hi - lo, 10); lo = Math.floor((lo - span * 0.05) / 10) * 10; hi = Math.ceil((hi + span * 0.05) / 10) * 10;
+  const step = Math.max(10, Math.ceil((hi - lo) / 5 / 10) * 10);
+  const x = i => padL + (months.length === 1 ? 0 : i / (months.length - 1) * (W - padL - padR));
+  const y = v => padT + (hi - v) / (hi - lo) * (H - padT - padB);
+  let g = "";
+  for (let t = lo; t <= hi; t += step) g += `<line x1="${padL}" x2="${W - padR}" y1="${y(t)}" y2="${y(t)}" stroke="var(--rule)" stroke-width="${t === 100 ? 1.6 : 1}"/><text x="${padL - 6}" y="${y(t) + 4}" text-anchor="end">₹${t}</text>`;
+  const every = Math.ceil(months.length / 10);
+  months.forEach((m, i) => { if (i % every === 0 || i === months.length - 1) g += `<text x="${x(i)}" y="${H - 10}" text-anchor="${i === months.length - 1 ? "end" : i === 0 ? "start" : "middle"}">${monthName(m)}</text>`; });
+  lines.forEach((l, li) => {
+    let d = "";
+    l.vals.forEach((v, i) => { if (v !== null) d += `${d ? "L" : "M"}${x(i).toFixed(1)},${y(v).toFixed(1)}`; });
+    g += `<path d="${d}" fill="none" stroke="var(--c${li + 1})" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"><title>${esc(l.name)}</title></path>`;
+    const last = l.vals.length - 1;
+    if (l.vals[last] !== null) g += `<circle cx="${x(last)}" cy="${y(l.vals[last])}" r="3.5" fill="var(--c${li + 1})"/>`;
+  });
+  return `<svg class="fund-chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Growth of 100 rupees for each fund">${g}</svg>`;
+}
+
+async function openCompare() {
+  const keys = [...state.compare];
+  const labels = keys.map(fundLabel);
+  $("cmpSub").textContent = `${keys.length} funds, as on ${monthLabel(state.asOn)}`;
+  if (!$("cmp").open) $("cmp").showModal();
+
+  // side-by-side table for the month being viewed
+  const metrics = [
+    ["Category", r => r._cat, null],
+    ["Service", r => r["Service Type"] === "Non Discretionary" ? "Non-discretionary" : "Discretionary", null],
+    ...COLS.filter(c => c.fmt !== "text").map(c => [c.label === "AUM (₹ Cr)" ? "AUM (₹ Cr)" : (c.fmt === "pct" ? (c.label === "Since start" ? "Since inception" : `${c.label} return`) : c.label), r => r[c.key], c]),
+  ];
+  const head = `<tr><th class="metric"></th>${labels.map((l, i) => `<th><div class="fund-col"><span class="swatch" style="background:var(--c${i + 1})"></span>${esc(l.name)}<small>${esc(l.sub)}</small></div><button type="button" class="remove" data-key="${esc(keys[i])}">Remove</button></th>`).join("")}</tr>`;
+  const body = metrics.map(([label, get, col]) => {
+    const vals = labels.map(l => l.row ? get(l.row) : null);
+    let best = null;
+    if (col && col.fmt === "pct") { const nums = vals.filter(v => typeof v === "number"); if (nums.length > 1) best = Math.max(...nums); }
+    return `<tr><td class="metric">${esc(label)}</td>${vals.map(v => {
+      const txt = col ? fmt(v, col.fmt) : (v ?? null);
+      const cls = [txt === null ? "na" : "", col && col.fmt === "pct" && typeof v === "number" ? (v > 0 ? "pos" : v < 0 ? "neg" : "") : "", best !== null && v === best ? "best" : ""].join(" ");
+      return `<td class="${cls}">${txt === null ? "–" : (col ? txt : esc(txt))}</td>`;
+    }).join("")}</tr>`;
+  }).join("");
+  $("cmpBody").innerHTML = `<div class="table-scroll"><table class="cmp-table"><thead>${head}</thead><tbody>${body}</tbody></table></div>
+    <p class="chart-legend">The best return in each row is highlighted.</p>
+    <h3 class="cmp-section">Growth of ₹100</h3><div id="cmpHistory"><p class="chart-legend">Loading monthly history…</p></div>`;
+  $("cmpBody").querySelectorAll(".remove").forEach(b => b.addEventListener("click", () => {
+    togglePick(b.dataset.key);
+    state.compare.length >= 2 ? openCompare() : $("cmp").close();
+  }));
+
+  // history: growth of 100 from the first month every fund has data
+  const data = await loadSeries();
+  const series = keys.map(k => data && data.funds[k]);
+  if (!data || series.every(s => !s)) { $("cmpHistory").innerHTML = `<p class="chart-legend">Monthly history isn't available yet. It appears once the scraper has collected past month-ends.</p>`; return; }
+  const n = data.months.length;
+  const firstOf = s => s ? s.r.findIndex(v => v !== null) : -1;
+  const starts = series.map(firstOf).filter(i => i >= 0);
+  const start = Math.max(...starts);
+  const months = data.months.slice(start);
+  const lines = series.map((s, i) => {
+    if (!s || firstOf(s) < 0) return { name: labels[i].name, vals: months.map(() => null) };
+    let g = 100;
+    return { name: labels[i].name, vals: s.r.slice(start).map(v => (v !== null ? (g *= 1 + v / 100) : g)) };
+  });
+  const missingHist = labels.filter((l, i) => !series[i]).map(l => l.name);
+  $("cmpHistory").innerHTML = `
+    <div class="cmp-legend">${labels.map((l, i) => `<span><span class="swatch" style="display:inline-block;width:10px;height:10px;border-radius:2px;background:var(--c${i + 1});margin-right:5px"></span>${esc(l.name)}: ₹${lines[i].vals.length && lines[i].vals[lines[i].vals.length - 1] !== null ? lines[i].vals[lines[i].vals.length - 1].toFixed(0) : "–"}</span>`).join("")}</div>
+    ${lineChart(months, lines)}
+    <p class="chart-legend">All funds start at ₹100 in ${esc(monthName(months[0]))}, the first month every picked fund has a reported return.${missingHist.length ? ` No history yet for: ${missingHist.map(esc).join(", ")}.` : ""}</p>
+    <div class="fund-actions"><h3 class="cmp-section" style="margin:14px 0 0">Month-by-month returns</h3><button type="button" class="link-btn" id="cmpCsv">Download comparison</button></div>
+    <div class="table-scroll"><table class="cmp-table">
+      <thead><tr><th class="metric">Month</th>${labels.map((l, i) => `<th><div class="fund-col"><span class="swatch" style="background:var(--c${i + 1})"></span>${esc(l.name)}</div></th>`).join("")}</tr></thead>
+      <tbody>${months.map((m, mi) => mi).reverse().map(mi => `<tr><td class="metric">${esc(monthName(months[mi]))}</td>${series.map(s => {
+        const v = s ? s.r[start + mi] : null;
+        return `<td class="${v === null ? "na" : v > 0 ? "pos" : v < 0 ? "neg" : ""}">${fmt(v, "pct") ?? "–"}</td>`;
+      }).join("")}</tr>`).join("")}</tbody>
+    </table></div>`;
+  $("cmpCsv").addEventListener("click", () => {
+    const head = ["Month", ...labels.map(l => `"${l.name.replace(/"/g, '""')} (1M %)"`)].join(",");
+    const lines2 = months.map((m, mi) => [m, ...series.map(s => (s && s.r[start + mi] !== null ? s.r[start + mi] : ""))].join(","));
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([[head, ...lines2].join("\n")], { type: "text/csv" }));
+    a.download = "pms_comparison.csv"; a.click();
+  });
+}
+$("body").addEventListener("click", e => { const b = e.target.closest(".pick-btn"); if (b) togglePick(b.dataset.key); });
+$("cmpGo").addEventListener("click", openCompare);
+$("cmpClear").addEventListener("click", () => { state.compare = []; saveCompare(); updateCompareBar(); render(); });
+$("cmpClose").addEventListener("click", () => $("cmp").close());
+$("cmp").addEventListener("click", e => { if (e.target === $("cmp")) $("cmp").close(); });
+updateCompareBar();
 
 // ---------- light / dark mode
 function setTheme(choice) {
@@ -552,7 +730,7 @@ function useData(d) {
   $("notice").textContent = defaultOnly
     ? "Only APMI's default Equity list could be collected for this month. Debt, Hybrid and Multi Asset will appear once the scraper can request them."
     : failed ? `Some parts of this month couldn't be collected (${d.failed.join(", ")}), so a few strategies may be missing.` : "";
-  if (!cats.has(state.tab) && state.tab !== "mine") state.tab = CATEGORIES.find(c => cats.has(c)) || "Equity";
+  if (!cats.has(state.tab) && !isList(state.tab)) state.tab = CATEGORIES.find(c => cats.has(c)) || "Equity";
   state.shown = PAGE;
   renderTabs(); renderAll();
 }
@@ -577,7 +755,11 @@ Promise.all([
   fetch("watchlist.csv", { cache: "no-cache" }).then(r => r.ok ? r.text() : "").catch(() => ""),
 ]).then(([idx, watchText]) => {
   state.watch = loadWatchlist(watchText);
-  if (location.hash === "#my-funds" && state.watch.length) state.tab = "mine";
+  // open a list directly: #my-funds opens the first list, #list=MF%20PMS opens that one
+  const h = decodeURIComponent(location.hash.slice(1));
+  const wantedList = h.startsWith("list=") ? h.slice(5) : (h === "my-funds" ? listNames()[0] : null);
+  if (wantedList && listNames().includes(wantedList)) state.tab = "list:" + wantedList;
+  if (isList(state.tab)) history.replaceState(null, "", location.pathname + location.search + "#list=" + encodeURIComponent(state.tab.slice(5)));
   state.months = (idx && idx.months) || [];
   state.latest = idx && idx.latest;
   const wanted = new URLSearchParams(location.search).get("month");
