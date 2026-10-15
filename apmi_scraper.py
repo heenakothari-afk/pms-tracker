@@ -569,9 +569,11 @@ def main():
 
     if frames and args.backfill > 0:
         ref = signature(frames)
+        print("\nRefreshing the two months before the latest (late reports), then filling any gaps.")
         done, empty_streak, mid = 0, 0, prev_month(latest)
         while mid >= args.earliest and done < args.backfill:
-            if not history_is_complete(args.site, mid):
+            recent = mid >= prev_month(prev_month(latest))   # managers report late: keep refreshing recent months
+            if recent or not history_is_complete(args.site, mid):
                 print(f"\nHistory {mid}:")
                 f_hist, fail_hist = scrape_month(perf, turn, mid, reference=ref)
                 if f_hist:
