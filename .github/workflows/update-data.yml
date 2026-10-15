@@ -2,7 +2,7 @@ name: Update APMI data
 
 on:
   schedule:
-    - cron: "30 3 10,20,28 * *"
+    - cron: "30 3 * * *"
   workflow_dispatch: {}
 
 permissions:
