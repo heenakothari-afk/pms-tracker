@@ -1,43 +1,69 @@
-Provider,Strategy
-Alpha Alternatives Fund Advisors LLP,Fixed Income Edge
-Ambit Investment Advisors Private Limited,Ambit Coffee Can Portfolio
-Ambit Investment Advisors Private Limited,Ambit Emerging Giants Small Cap Portfolio
-Unifi Capital Pvt Ltd,APJ (Formerly known as APJ 20)
-Buoyant Capital Private Limited,Buoyant Opportunities PMS
-Capitalmind Financial Services Private Limited,Surge India
-Carnelian Asset Management & Advisors Pvt Ltd,CARNELIAN CAPITAL COMPOUNDER STRATEGY
-Carnelian Asset Management & Advisors Pvt Ltd,CARNELIAN SHIFT STRATEGY
-Capitalmind Financial Services Private Limited,Adaptive Momentum
-Enam Asset Management Company Private Limited,Enam India Diversified Equity Advantage Portfolio
-Enam Asset Management Company Private Limited,Enam India Vision Portfolio
-Girik Wealth Advisors Private Limited,Girik Multicap Strategy
-Green Lantern Capital LLP,GL Alpha Fund
-Green Lantern Capital LLP,GLC Growth Fund
-ICICI Prudential Asset Management Company Ltd,ICICI Prudential PMS Contra Strategy
-ICICI Prudential Asset Management Company Ltd,ICICI Prudential PMS PIPE Strategy
-Marcellus Investment Managers Private Limited,Consistent Compounders
-Wryght Research And Capital Private Limited,Wright Factor Fund
-Marcellus Investment Managers Private Limited,Little Champs
-Nafa Asset Managers Private Limited,NAFA EMERGING BLUE CHIP PORTFOLIO
-Nafa Asset Managers Private Limited,NAFA Small Cap Portfolio
-Neo Asset Management Private Limited,Neo Yield Enhancer
-Nine Rivers Capital Holdings Private Limited,Aurum Multiplier Portfolio
-Nine Rivers Capital Holdings Private Limited,Aurum Small Cap Opportunities
-Phillipcapital (India) Pvt Ltd,Phillip Income Builder Portfolio Growth
-Phillipcapital (India) Pvt Ltd,Phillip Income Builder Portfolio Regular Income
-Quest Investment Managers Pvt Ltd,QUESTPMS FLAGSHIP PORTFOLIO
-Quest Investment Managers Pvt Ltd,QUESTPMS MULTI PORTFOLIO
-Sageone Investment Managers Llp,SageOne Mid & Small Cap
-Sageone Investment Managers Llp,SageOne Small Cap
-Stallion Asset Private Limited,STALLION ASSET CORE FUND
-Stalwart Investment Advisors Llp,WEALTH GUARDIAN FUND
-Sundaram Alternate Assets Limited,FIRST AGGRESSIVE
-Sundaram Alternate Assets Limited,FIRST MODERATE
-Svan Investment Managers LLP,SVAN INVESTMENT MANAGERS LLP - VELOCITY
-True Beacon Investment Advisors Llp,EquityFactorQuant
-Unifi Capital Pvt Ltd,BCAD
-Unifi Capital Pvt Ltd,BLENDED- RANGOLI
-Valtrust Partners Llp,Valtrust Equity Funds
-Valtrust Partners Llp,Valtrust Equity Hybrid Funds
-Valtrust Partners Llp,Valtrust Momentum
-AlfAccurate Advisors,AAA Budding Beasts PMS
+List,Provider,Strategy
+Alt Tracker,Alpha Alternatives Fund Advisors LLP,Fixed Income Edge
+Alt Tracker,Ambit Investment Advisors Private Limited,Ambit Coffee Can Portfolio
+Alt Tracker,Ambit Investment Advisors Private Limited,Ambit Emerging Giants Small Cap Portfolio
+Alt Tracker,Unifi Capital Pvt Ltd,APJ (Formerly known as APJ 20)
+Alt Tracker,Buoyant Capital Private Limited,Buoyant Opportunities PMS
+Alt Tracker,Capitalmind Financial Services Private Limited,Surge India
+Alt Tracker,Carnelian Asset Management & Advisors Pvt Ltd,CARNELIAN CAPITAL COMPOUNDER STRATEGY
+Alt Tracker,Carnelian Asset Management & Advisors Pvt Ltd,CARNELIAN SHIFT STRATEGY
+Alt Tracker,Capitalmind Financial Services Private Limited,Adaptive Momentum
+Alt Tracker,Enam Asset Management Company Private Limited,Enam India Diversified Equity Advantage Portfolio
+Alt Tracker,Enam Asset Management Company Private Limited,Enam India Vision Portfolio
+Alt Tracker,Girik Wealth Advisors Private Limited,Girik Multicap Strategy
+Alt Tracker,Green Lantern Capital LLP,GL Alpha Fund
+Alt Tracker,Green Lantern Capital LLP,GLC Growth Fund
+Alt Tracker,ICICI Prudential Asset Management Company Ltd,ICICI Prudential PMS Contra Strategy
+Alt Tracker,ICICI Prudential Asset Management Company Ltd,ICICI Prudential PMS PIPE Strategy
+Alt Tracker,Marcellus Investment Managers Private Limited,Consistent Compounders
+Alt Tracker,Wryght Research And Capital Private Limited,Wright Factor Fund
+Alt Tracker,Marcellus Investment Managers Private Limited,Little Champs
+Alt Tracker,Nafa Asset Managers Private Limited,NAFA EMERGING BLUE CHIP PORTFOLIO
+Alt Tracker,Nafa Asset Managers Private Limited,NAFA Small Cap Portfolio
+Alt Tracker,Neo Asset Management Private Limited,Neo Yield Enhancer
+Alt Tracker,Nine Rivers Capital Holdings Private Limited,Aurum Multiplier Portfolio
+Alt Tracker,Nine Rivers Capital Holdings Private Limited,Aurum Small Cap Opportunities
+Alt Tracker,Phillipcapital (India) Pvt Ltd,Phillip Income Builder Portfolio Growth
+Alt Tracker,Phillipcapital (India) Pvt Ltd,Phillip Income Builder Portfolio Regular Income
+Alt Tracker,Quest Investment Managers Pvt Ltd,QUESTPMS FLAGSHIP PORTFOLIO
+Alt Tracker,Quest Investment Managers Pvt Ltd,QUESTPMS MULTI PORTFOLIO
+Alt Tracker,Sageone Investment Managers Llp,SageOne Mid & Small Cap
+Alt Tracker,Sageone Investment Managers Llp,SageOne Small Cap
+Alt Tracker,Stallion Asset Private Limited,STALLION ASSET CORE FUND
+Alt Tracker,Stalwart Investment Advisors Llp,WEALTH GUARDIAN FUND
+Alt Tracker,Sundaram Alternate Assets Limited,FIRST AGGRESSIVE
+Alt Tracker,Sundaram Alternate Assets Limited,FIRST MODERATE
+Alt Tracker,Svan Investment Managers LLP,SVAN INVESTMENT MANAGERS LLP - VELOCITY
+Alt Tracker,True Beacon Investment Advisors Llp,EquityFactorQuant
+Alt Tracker,Unifi Capital Pvt Ltd,BCAD
+Alt Tracker,Unifi Capital Pvt Ltd,BLENDED- RANGOLI
+Alt Tracker,Valtrust Partners Llp,Valtrust Equity Funds
+Alt Tracker,Valtrust Partners Llp,Valtrust Equity Hybrid Funds
+Alt Tracker,Valtrust Partners Llp,Valtrust Momentum
+Alt Tracker,AlfAccurate Advisors Pvt Ltd,AAA Budding Beasts PMS
+MF PMS,Valtrust Partners Llp,Valtrust Equity Funds
+MF PMS,Valtrust Partners Llp,Valtrust Equity Hybrid Funds
+MF PMS,Capitalmind Financial Services Private Limited,All Weather Equity
+MF PMS,Capitalmind Financial Services Private Limited,Altitude
+MF PMS,Dezerv Investments Private Limited,dezerv. Equity Revival Strategy
+MF PMS,Dezerv Investments Private Limited,dezerv. Alpha Focus Strategy
+MF PMS,HDFC Asset Management Company Limited,"HDFC AMC ""MF Select"" Portfolio - Equity (Formerly Portfolio of MF Schemes/ETFs) - ND"
+MF PMS,NJ Asset Management Private Limited,FREEDOM ETF PORTFOLIO
+MF PMS,NJ Asset Management Private Limited,FREEDOM PORTFOLIO
+MF PMS,Citrus Advisors Private Limited,Citrus Mutual Fund Strategy(Aggressive)
+MF PMS,Citrus Advisors Private Limited,Citrus Mutual Fund Strategy (Moderate)
+MF PMS,MAXIOM ASSET MANAGEMENT PRIVATE LIMITED,Maxiom PMS-EMERALD-E Diversified Mutual Funds (Equity)
+MF PMS,UNICORN INVESTMENT MANAGERS LLP,Unicorn MF Alpha Portfolio
+MF PMS,UNICORN INVESTMENT MANAGERS LLP,UNICORN ETF ALPHA PORTFOLIO
+MF PMS,Pioneer Client Associates Pvt Ltd,CA Equity Multi-Manager Portfolio
+MF PMS,AYAN ANALYTICS PVT LTD,PriceBridge Direct Mutual Fund
+MF PMS,AYAN ANALYTICS PVT LTD,PriceBridge HoneyComb
+MF PMS,AYAN ANALYTICS PVT LTD,PriceBridge-Total Market India PMS
+MF PMS,Infinity Alternatives Investment Managers Private Limited,Customised Mutual Fund Portfolio (A4)
+MF PMS,Brainpoint Investment Centre Pvt Ltd,BRAINPOINT Future Winners
+MF PMS,Angel One Investment Managers & Advisors Private Limited,Ionic Allocate Portfolio-Equity
+MF PMS,Angel One Investment Managers & Advisors Private Limited,Ionic Summit Portfolio - Equity
+MF PMS,Angel One Investment Managers & Advisors Private Limited,Ionic Allocate Portfolio-Moderate
+MF PMS,PrimeInvestor Financial Research Private Limited,Prime Vision Ultra
+MF PMS,Right Horizons Portfolio Management Pvt Ltd,RHPMPL - ALL SEASON FUND
+MF PMS,Kotak Mahindra Asset Management Company Ltd,Kotak Pioneer Model Strategy Investment Approach Aggressive
